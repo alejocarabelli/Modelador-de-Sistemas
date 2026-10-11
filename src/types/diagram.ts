@@ -482,6 +482,15 @@ export type DesignArtifact =
 
 export type ClassModelArtifact = ClassDiagramArtifact | ClassSequenceDiagramArtifact;
 
+/** A PDF kept with the project. Only the metadata lives here; the bytes are stored apart (src/storage/projectFiles.ts). */
+export type ProjectFile = {
+  id: string;
+  name: string;
+  size: number;
+  pageCount?: number;
+  addedAt: string;
+};
+
 export type DesignProject = {
   id: string;
   name: string;
@@ -489,6 +498,7 @@ export type DesignProject = {
   updatedAt: string;
   activeArtifactId?: string;
   artifacts: DesignArtifact[];
+  files?: ProjectFile[];
 };
 
 export type DiagramProject = DesignProject;

@@ -1,12 +1,23 @@
-import { Check, ChevronDown, X } from 'lucide-react';
+import { Check, ChevronDown, FileText, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEvent, type PointerEvent } from 'react';
-import type { DesignArtifact } from '../types/diagram';
+import type { DesignArtifact, ProjectFile } from '../types/diagram';
 import { artifactTypeInfo } from '../constants/artifactTypes';
 import { reorderArtifactTabs } from '../utils/artifactTabs';
 import { ArtifactTypeIcon } from './ArtifactTypeIcon';
+import { fileDisplayName } from '../utils/projectFiles';
+
+/** What a tab shows: an artifact, or a PDF of the project (the only one without a `type`). */
+type TabItem = DesignArtifact | ProjectFile;
+
+const isFileTab = (item: TabItem): item is ProjectFile => !('type' in item);
+const tabName = (item: TabItem): string => isFileTab(item) ? fileDisplayName(item.name) : item.name;
+
+function TabIcon({ item, size }: { item: TabItem; size: number }) {
+  return isFileTab(item) ? <FileText aria-hidden="true" size={size} /> : <ArtifactTypeIcon type={item.type} size={size} />;
+}
 
 type ArtifactTabProps = {
-  artifact: DesignArtifact;
+  artifact: TabItem;
   active: boolean;
   dragging?: boolean;
   tabRef?: (element: HTMLDivElement | null) => void;
@@ -16,6 +27,7 @@ type ArtifactTabProps = {
 } & Pick<HTMLAttributes<HTMLDivElement>, 'onKeyDown' | 'onContextMenu' | 'onPointerDown' | 'onPointerMove' | 'onPointerUp' | 'onPointerCancel' | 'onLostPointerCapture'>;
 
 export function ArtifactTab({ artifact, active, dragging, tabRef, style, onSelect, onClose, ...events }: ArtifactTabProps) {
+  const name = tabName(artifact);
   return (
     <div
       {...events}
@@ -23,11 +35,11 @@ export function ArtifactTab({ artifact, active, dragging, tabRef, style, onSelec
       id={`artifact-tab-${artifact.id}`}
       className={`artifact-tab${active ? ' is-active' : ''}${dragging ? ' is-dragging' : ''}`}
       role="tab"
-      aria-label={artifact.name}
+      aria-label={name}
       aria-selected={active}
       aria-controls="artifact-editor-panel"
       tabIndex={active ? 0 : -1}
-      title={`${artifact.name} · ${artifactTypeInfo(artifact.type).label}`}
+      title={`${name} · ${isFileTab(artifact) ? 'PDF' : artifactTypeInfo(artifact.type).label}`}
       style={style}
       onClick={onSelect}
       onMouseDown={(event) => { if (event.button === 1) event.preventDefault(); }}
@@ -37,12 +49,12 @@ export function ArtifactTab({ artifact, active, dragging, tabRef, style, onSelec
         onClose();
       }}
     >
-      <span className="artifact-tab-icon"><ArtifactTypeIcon type={artifact.type} size={14} /></span>
-      <span className="artifact-tab-name">{artifact.name}</span>
+      <span className="artifact-tab-icon"><TabIcon item={artifact} size={14} /></span>
+      <span className="artifact-tab-name">{name}</span>
       <button
         type="button"
         className="artifact-tab-close"
-        aria-label={`Cerrar ${artifact.name}`}
+        aria-label={`Cerrar ${name}`}
         tabIndex={-1}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => { event.stopPropagation(); onClose(); }}
@@ -56,7 +68,10 @@ export function ArtifactTab({ artifact, active, dragging, tabRef, style, onSelec
 type ArtifactTabsProps = {
   projectName: string;
   artifacts: DesignArtifact[];
+  /** The project's PDFs; their ids sit in `openArtifactIds` next to the artifacts'. */
+  files?: ProjectFile[];
   openArtifactIds: string[];
+  /** The id of the active tab, artifact or PDF. */
   activeArtifactId: string;
   onSelect: (artifactId: string) => void;
   onClose: (artifactId: string) => void;
@@ -64,6 +79,8 @@ type ArtifactTabsProps = {
   onCloseRight: (artifactId: string) => void;
   onReorder: (ids: string[]) => void;
   onOpenInWindow?: (artifactId: string) => void;
+  /** Absent where a PDF cannot have its own window: the item is not offered. */
+  onOpenFileInWindow?: (fileId: string) => void;
 };
 
 type TabMenu = { kind: 'context'; artifactId: string; x: number; y: number } | { kind: 'all'; x: number; y: number };
@@ -80,7 +97,7 @@ type TabDrag = {
   started: boolean;
 };
 
-export function ArtifactTabs({ projectName, artifacts, openArtifactIds, activeArtifactId, onSelect, onClose, onCloseOthers, onCloseRight, onReorder, onOpenInWindow }: ArtifactTabsProps) {
+export function ArtifactTabs({ projectName, artifacts, files = [], openArtifactIds, activeArtifactId, onSelect, onClose, onCloseOthers, onCloseRight, onReorder, onOpenInWindow, onOpenFileInWindow }: ArtifactTabsProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const allButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -91,11 +108,13 @@ export function ArtifactTabs({ projectName, artifacts, openArtifactIds, activeAr
   const [overflow, setOverflow] = useState({ left: false, right: false });
   const [menu, setMenu] = useState<TabMenu | null>(null);
   if (menu?.kind === 'context' && !openArtifactIds.includes(menu.artifactId)) setMenu(null);
-  const openArtifacts = openArtifactIds.flatMap((id) => {
-    const artifact = artifacts.find((candidate) => candidate.id === id);
-    return artifact === undefined ? [] : [artifact];
+  const openArtifacts = openArtifactIds.flatMap((id): TabItem[] => {
+    const item = artifacts.find((candidate) => candidate.id === id) ?? files.find((candidate) => candidate.id === id);
+    return item === undefined ? [] : [item];
   });
-  const activeArtifact = artifacts.find((artifact) => artifact.id === activeArtifactId);
+  const activeArtifact = openArtifacts.find((item) => item.id === activeArtifactId);
+  const windowOpener = (id: string): ((id: string) => void) | undefined =>
+    files.some((file) => file.id === id) ? onOpenFileInWindow : onOpenInWindow;
 
   useLayoutEffect(() => {
     const list = listRef.current;
@@ -265,7 +284,7 @@ export function ArtifactTabs({ projectName, artifacts, openArtifactIds, activeAr
 
   return (
     <div className="artifact-tabs">
-      <h1 className="visually-hidden">{activeArtifact?.name}</h1>
+      <h1 className="visually-hidden">{activeArtifact === undefined ? undefined : tabName(activeArtifact)}</h1>
       <span className="artifact-tabs-project" title={projectName}>{projectName}</span>
       <span className="artifact-tabs-divider" aria-hidden="true" />
       <div ref={listRef} className="artifact-tabs-list" role="tablist" aria-label="Artefactos abiertos" data-hidden-left={overflow.left} data-hidden-right={overflow.right}>
@@ -314,15 +333,15 @@ export function ArtifactTabs({ projectName, artifacts, openArtifactIds, activeAr
       {menu !== null ? (
         <div ref={menuRef} className="canvas-context-menu artifact-tabs-menu" role="menu" aria-label={menu.kind === 'all' ? 'Todas las pestañas' : 'Opciones de pestaña'} style={{ left: menu.x, top: menu.y }} onKeyDown={handleMenuKey}>
           {menu.kind === 'all' ? openArtifacts.map((artifact) => (
-            <button key={artifact.id} type="button" role="menuitemradio" aria-checked={artifact.id === activeArtifactId} title={artifact.name} onClick={() => menuAction(() => onSelect(artifact.id))}>
-              <ArtifactTypeIcon type={artifact.type} size={14} />
-              <span className="artifact-tab-name">{artifact.name}</span>
+            <button key={artifact.id} type="button" role="menuitemradio" aria-checked={artifact.id === activeArtifactId} title={tabName(artifact)} onClick={() => menuAction(() => onSelect(artifact.id))}>
+              <TabIcon item={artifact} size={14} />
+              <span className="artifact-tab-name">{tabName(artifact)}</span>
               {artifact.id === activeArtifactId ? <Check aria-hidden="true" size={14} /> : null}
             </button>
           )) : (
             <>
-              {onOpenInWindow ? (
-                <button type="button" role="menuitem" onClick={() => menuAction(() => onOpenInWindow(menu.artifactId))}>Abrir en ventana nueva</button>
+              {windowOpener(menu.artifactId) ? (
+                <button type="button" role="menuitem" onClick={() => menuAction(() => windowOpener(menu.artifactId)?.(menu.artifactId))}>Abrir en ventana nueva</button>
               ) : null}
               <button type="button" role="menuitem" onClick={() => menuAction(() => closeTab(menu.artifactId))}>Cerrar</button>
               <button type="button" role="menuitem" disabled={openArtifactIds.length <= 1} onClick={() => menuAction(() => onCloseOthers(menu.artifactId))}>Cerrar las demás</button>

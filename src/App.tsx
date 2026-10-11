@@ -14,14 +14,30 @@ import { ProjectSidebar } from './components/ProjectSidebar';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { ArtifactTabs } from './components/ArtifactTabs';
 import { useArtifactTabs } from './hooks/useArtifactTabs';
-import { artifactTabShortcut, closeArtifactTabs, closeOtherArtifactTabs, closeArtifactTabsToRight, type ArtifactTabState } from './utils/artifactTabs';
+import { artifactTabShortcut, closeArtifactTabs, closeOtherArtifactTabs, closeArtifactTabsToRight, openArtifactTab, resolveActiveTab, type ActiveTab, type ArtifactTabState } from './utils/artifactTabs';
 import { artifactViewKey, forgetArtifactView } from './utils/artifactViewMemory';
 import { downloadProjectFile } from './utils/projectFile';
 import { downloadArtifactFile, downloadTextFile } from './utils/artifactFile';
 import { relinkArtifactForProject } from './utils/artifactTransfer';
 import artifactGuide from '../docs/artifact-json-guide.md?raw';
 import { useProjects } from './hooks/useProjects';
-import { openArtifactWindow } from './storage/nativeWindows';
+import { canOpenFileWindow, openArtifactWindow, openFileWindow } from './storage/nativeWindows';
+import {
+  collectStoredFiles,
+  hasNativeFiles,
+  listStoredFileIds,
+  pickNativeFiles,
+  revealStoredFile,
+  storeFile,
+} from './storage/projectFiles';
+import { countPdfPages } from './utils/pdfjs';
+import {
+  fileDisplayName,
+  projectFiles,
+  referencedFileIds,
+  rejectionMessage,
+  validatePdf,
+} from './utils/projectFiles';
 import { useTheme } from './hooks/useTheme';
 import {
   clampNotebookWidth,
@@ -38,9 +54,8 @@ import { countPendingQuestions } from './utils/artifactNotebook';
 import { isNotebookEvent, isNotebookShortcut } from './utils/notebookKeyboard';
 import { shouldOverlayNotebook } from './utils/notebookLayout';
 import { isMacPlatform } from './utils/shortcutLabel';
-import type { ArtifactContent, ClassMethod, ClassModelArtifact, ClassSequenceDiagramContent, DesignArtifact, SequenceDiagramContent } from './types/diagram';
+import type { ArtifactContent, ClassMethod, ClassModelArtifact, ClassSequenceDiagramContent, DesignArtifact, ProjectFile, SequenceDiagramContent } from './types/diagram';
 import {
-  getActiveArtifact,
   normalizeClassSequenceDiagramContent,
   normalizeDiagramContent,
   normalizeUseCaseFlowContent,
@@ -48,19 +63,22 @@ import {
 } from './utils/diagramNormalization';
 import { normalizeSequenceDiagramContent } from './utils/sequenceDiagram';
 import { changeHistory, redoHistory, undoHistory, type ArtifactHistory } from './utils/artifactHistory';
+import { FileText } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 
 const DiagramEditor = lazy(() => import('./components/DiagramEditor').then(({ DiagramEditor: editor }) => ({ default: editor })));
 const UseCaseModelEditor = lazy(() => import('./components/UseCaseModelEditor').then(({ UseCaseModelEditor: editor }) => ({ default: editor })));
 const UseCaseFlowEditor = lazy(() => import('./components/UseCaseFlowEditor').then(({ UseCaseFlowEditor: editor }) => ({ default: editor })));
 const SequenceDiagramEditor = lazy(() => import('./components/SequenceDiagramEditor').then(({ SequenceDiagramEditor: editor }) => ({ default: editor })));
+const PdfViewer = lazy(() => import('./components/PdfViewer').then(({ PdfViewer: viewer }) => ({ default: viewer })));
 const ClassSequenceDiagramEditor = lazy(() => import('./components/ClassSequenceDiagramEditor').then(({ ClassSequenceDiagramEditor: editor }) => ({ default: editor })));
 
 type ProjectDialogState =
   | { mode: 'create'; projectId?: never; initialName: string }
   | { mode: 'rename'; projectId: string; initialName: string }
   | { mode: 'createArtifact'; projectId: string; initialName: string; artifactType: DesignArtifact['type'] }
-  | { mode: 'renameArtifact'; projectId: string; artifactId: string; initialName: string };
+  | { mode: 'renameArtifact'; projectId: string; artifactId: string; initialName: string }
+  | { mode: 'renameFile'; projectId: string; fileId: string; initialName: string };
 
 type ArtifactTransferDialogState =
   | { mode: 'import'; projectId: string }
@@ -123,6 +141,8 @@ const cloneContentForType = (artifactType: DesignArtifact['type'], content: Arti
 
 const areArtifactContentsEqual = (left: ArtifactContent, right: ArtifactContent): boolean =>
   JSON.stringify(left) === JSON.stringify(right);
+
+const tabIdOf = (tab: ActiveTab): string => tab.kind === 'file' ? tab.file.id : tab.artifact.id;
 
 const blurFocusedElement = (): void => {
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -192,19 +212,35 @@ function App() {
     continueWithoutRecovery,
     updateArtifactNotebook,
     updateProjectArtifactContent,
+    addProjectFiles,
+    renameProjectFile,
+    removeProjectFile,
+    patchProjectFile,
   } = useProjects();
-  const { tabsByProject, setOpenArtifactIds } = useArtifactTabs(projects, activeProjectId);
+  const { tabsByProject, activeFileByProject, setOpenArtifactIds, setActiveFileId } = useArtifactTabs(projects, activeProjectId);
 
-  const getProjectTabState = (projectId: string): ArtifactTabState => ({
-    openArtifactIds: tabsByProject[projectId] ?? [],
-    activeArtifactId: projects.find((project) => project.id === projectId)?.activeArtifactId ?? null,
-  });
+  // The active tab is a single thing: a PDF if one was chosen last, otherwise the project's active artifact.
+  const getProjectTabState = (projectId: string): ArtifactTabState => {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    const tab = project === undefined ? null : resolveActiveTab(project, activeFileByProject[projectId]);
+    return { openArtifactIds: tabsByProject[projectId] ?? [], activeArtifactId: tab === null ? null : tabIdOf(tab) };
+  };
+
+  // Tab ids are artifact ids or file ids; the project only ever stores the artifact one.
+  const activateTab = (projectId: string, tabId: string): void => {
+    if (projects.find((project) => project.id === projectId)?.files?.some((file) => file.id === tabId)) {
+      setActiveFileId(projectId, tabId);
+      return;
+    }
+    setActiveFileId(projectId, null);
+    setActiveArtifactId(projectId, tabId);
+  };
 
   const applyTabState = (projectId: string, next: ArtifactTabState, openHomeIfEmpty = true): void => {
     if (projectId === activeProjectId && next.activeArtifactId !== getProjectTabState(projectId).activeArtifactId) blurFocusedElement();
     historyBurstRef.current = null;
     setOpenArtifactIds(projectId, next.openArtifactIds);
-    if (next.activeArtifactId !== null) setActiveArtifactId(projectId, next.activeArtifactId);
+    if (next.activeArtifactId !== null) activateTab(projectId, next.activeArtifactId);
     else if (openHomeIfEmpty && projectId === activeProjectId) setActiveProjectId(null);
   };
 
@@ -258,6 +294,10 @@ function App() {
 
     if (projectDialog?.mode === 'renameArtifact') {
       renameArtifact(projectDialog.projectId, projectDialog.artifactId, name);
+    }
+
+    if (projectDialog?.mode === 'renameFile') {
+      renameProjectFile(projectDialog.projectId, projectDialog.fileId, name);
     }
 
     setProjectDialog(null);
@@ -331,6 +371,209 @@ function App() {
     }
   };
 
+  const handleSelectFile = (projectId: string, fileId: string): void => {
+    blurFocusedElement();
+    historyBurstRef.current = null;
+    setActiveProjectId(projectId);
+    setOpenArtifactIds(projectId, openArtifactTab(getProjectTabState(projectId), fileId).openArtifactIds);
+    setActiveFileId(projectId, fileId);
+  };
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // What the browser's file picker was opened for: new PDFs for a project, or the bytes of one that went missing.
+  const pendingFilePickRef = useRef<{ projectId: string; replaceFileId?: string } | null>(null);
+  const [unavailableFileIds, setUnavailableFileIds] = useState<ReadonlySet<string>>(new Set());
+  const [storeRevision, setStoreRevision] = useState(0);
+  const [fileReloads, setFileReloads] = useState<Record<string, number>>({});
+  const [isFileDragActive, setIsFileDragActive] = useState(false);
+  const fileDragDepthRef = useRef(0);
+
+  const reportRejections = async (messages: string[]): Promise<void> => {
+    if (messages.length === 0) return;
+    await notify({
+      title: messages.length === 1 ? 'No se pudo agregar el archivo' : 'Algunos archivos no se agregaron',
+      description: messages.join(' '),
+    });
+  };
+
+  // The bytes are stored first and only then does the project learn about the file: a failure leaves nothing half-added.
+  const addPdfFiles = async (projectId: string, files: File[]): Promise<void> => {
+    const added: ProjectFile[] = [];
+    const problems: string[] = [];
+    for (const file of files) {
+      const rejection = await validatePdf(file);
+      if (rejection !== null) {
+        problems.push(rejectionMessage(file.name, rejection));
+        continue;
+      }
+      const id = createId();
+      try {
+        await storeFile(id, file);
+      } catch {
+        problems.push(`No se pudo guardar «${file.name}».`);
+        continue;
+      }
+      added.push({ id, name: file.name, size: file.size, addedAt: new Date().toISOString() });
+      void countPdfPages(file).then((pageCount) => {
+        if (pageCount !== null) patchProjectFile(projectId, id, { pageCount });
+      });
+    }
+    if (added.length > 0) {
+      addProjectFiles(projectId, added);
+      setStoreRevision((revision) => revision + 1);
+      handleSelectFile(projectId, added[0].id);
+    }
+    await reportRejections(problems);
+  };
+
+  const replacePdfFile = async (projectId: string, fileId: string, file: File): Promise<void> => {
+    const rejection = await validatePdf(file);
+    if (rejection !== null) {
+      await reportRejections([rejectionMessage(file.name, rejection)]);
+      return;
+    }
+    try {
+      await storeFile(fileId, file);
+    } catch {
+      await reportRejections([`No se pudo guardar «${file.name}».`]);
+      return;
+    }
+    patchProjectFile(projectId, fileId, { size: file.size, pageCount: await countPdfPages(file) ?? undefined });
+    setStoreRevision((revision) => revision + 1);
+    setFileReloads((current) => ({ ...current, [fileId]: (current[fileId] ?? 0) + 1 }));
+  };
+
+  // On the Mac the system panel copies the PDFs straight into the store; elsewhere the browser's picker hands them over.
+  const startFilePick = async (projectId: string, replaceFileId?: string): Promise<void> => {
+    if (!hasNativeFiles()) {
+      pendingFilePickRef.current = { projectId, replaceFileId };
+      fileInputRef.current?.click();
+      return;
+    }
+    let result: Awaited<ReturnType<typeof pickNativeFiles>>;
+    try {
+      result = await pickNativeFiles(replaceFileId);
+    } catch {
+      await reportRejections(['No se pudo abrir el selector de archivos.']);
+      return;
+    }
+    if (result === null) return;
+    const reasons = { 'too-large': 'too-large', empty: 'empty', 'not-pdf': 'not-pdf', failed: 'failed' } as const;
+    await reportRejections(result.rejected.map(({ name, reason }) =>
+      reasons[reason] === 'failed' ? `No se pudo guardar «${name}».` : rejectionMessage(name, reasons[reason])));
+    if (result.files.length === 0) return;
+    setStoreRevision((revision) => revision + 1);
+    if (replaceFileId !== undefined) {
+      patchProjectFile(projectId, replaceFileId, { size: result.files[0].size });
+      setFileReloads((current) => ({ ...current, [replaceFileId]: (current[replaceFileId] ?? 0) + 1 }));
+      return;
+    }
+    addProjectFiles(projectId, result.files.map((file) => ({ ...file, addedAt: new Date().toISOString() })));
+    handleSelectFile(projectId, result.files[0].id);
+  };
+
+  const handleFileInputChange = (files: File[]): void => {
+    const pending = pendingFilePickRef.current;
+    pendingFilePickRef.current = null;
+    if (pending === null || files.length === 0) return;
+    if (pending.replaceFileId !== undefined) void replacePdfFile(pending.projectId, pending.replaceFileId, files[0]);
+    else void addPdfFiles(pending.projectId, files);
+  };
+
+  const handleRenameFile = (projectId: string, fileId: string): void => {
+    const file = projectFiles(projects.find((candidate) => candidate.id === projectId) ?? {}).find((candidate) => candidate.id === fileId);
+    if (file !== undefined) setProjectDialog({ mode: 'renameFile', projectId, fileId, initialName: fileDisplayName(file.name) });
+  };
+
+  const handleRemoveFile = async (projectId: string, fileId: string): Promise<void> => {
+    const file = projectFiles(projects.find((candidate) => candidate.id === projectId) ?? {}).find((candidate) => candidate.id === fileId);
+    if (file === undefined) return;
+    const shouldRemove = await confirm({
+      title: `¿Quitar "${fileDisplayName(file.name)}" del proyecto?`,
+      description: 'El PDF deja de estar en el proyecto y se cierra su pestaña. Los diagramas no se tocan.',
+      confirmLabel: 'Quitar',
+    });
+    if (!shouldRemove) return;
+    const next = closeArtifactTabs(getProjectTabState(projectId), [fileId]);
+    setOpenArtifactIds(projectId, next.openArtifactIds);
+    if (next.activeArtifactId !== null) activateTab(projectId, next.activeArtifactId);
+    else setActiveFileId(projectId, null);
+    removeProjectFile(projectId, fileId);
+  };
+
+  const handleOpenFileWindow = (projectId: string, fileId: string): void => {
+    const file = projectFiles(projects.find((candidate) => candidate.id === projectId) ?? {}).find((candidate) => candidate.id === fileId);
+    if (file !== undefined) openFileWindow(projectId, fileId, `${fileDisplayName(file.name)} · vista`);
+  };
+
+  // Which PDFs are really stored here: a project from another machine lists files this one does not have.
+  const referencedIdsKey = referencedFileIds(projects).join(',');
+  useEffect(() => {
+    if (referencedIdsKey === '') return undefined;
+    let cancelled = false;
+    void listStoredFileIds().then((stored) => {
+      if (cancelled) return;
+      const present = new Set(stored ?? referencedIdsKey.split(','));
+      setUnavailableFileIds(new Set(referencedIdsKey.split(',').filter((id) => !present.has(id))));
+    });
+    return () => { cancelled = true; };
+  }, [referencedIdsKey, storeRevision]);
+
+  // Housekeeping, once and only after a clean load: a project that failed to read must never make its PDFs look orphaned.
+  const fileCollectionDoneRef = useRef(false);
+  useEffect(() => {
+    if (fileCollectionDoneRef.current || projects.length === 0 || storageWarning !== null || recoveryPending || storageUnavailable) return;
+    fileCollectionDoneRef.current = true;
+    void collectStoredFiles(referencedFileIds(projects));
+  }, [projects, recoveryPending, storageUnavailable, storageWarning]);
+
+  // Dropping PDFs from Finder anywhere in the window adds them to the open project. The page must always take
+  // the drop, or the web view would navigate to the file.
+  const dropFiles = useEffectEvent((files: File[]): void => {
+    if (activeProject === null) {
+      void notify({ title: 'Abrí un proyecto primero', description: 'Para guardar un PDF, abrí el proyecto donde lo querés y soltalo ahí.' });
+      return;
+    }
+    void addPdfFiles(activeProject.id, files);
+  });
+  useEffect(() => {
+    const hasFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes('Files') === true;
+    const onEnter = (event: DragEvent): void => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      fileDragDepthRef.current += 1;
+      setIsFileDragActive(true);
+    };
+    const onOver = (event: DragEvent): void => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    };
+    const onLeave = (event: DragEvent): void => {
+      if (!hasFiles(event)) return;
+      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+      if (fileDragDepthRef.current === 0) setIsFileDragActive(false);
+    };
+    const onDrop = (event: DragEvent): void => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      fileDragDepthRef.current = 0;
+      setIsFileDragActive(false);
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length > 0) dropFiles(files);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []);
+
   const handleConvertToSequenceModel = async (projectId: string, artifactId: string): Promise<void> => {
     const project = projects.find((currentProject) => currentProject.id === projectId);
     const artifact = project?.artifacts.find((currentArtifact) => currentArtifact.id === artifactId);
@@ -355,9 +598,10 @@ function App() {
   };
 
   const handleSelectArtifact = (projectId: string, artifactId: string): void => {
-    if (projectId !== activeProjectId || artifactId !== activeProject?.activeArtifactId) blurFocusedElement();
+    if (projectId !== activeProjectId || artifactId !== activeProject?.activeArtifactId || activeFileByProject[projectId]) blurFocusedElement();
     historyBurstRef.current = null;
     setActiveProjectId(projectId);
+    setActiveFileId(projectId, null);
     setActiveArtifactId(projectId, artifactId);
   };
 
@@ -378,11 +622,16 @@ function App() {
     return () => window.removeEventListener('modelador:select-artifact', onSelect);
   }, []);
 
-  const activeArtifact = useMemo(
-    () => (activeProject !== null ? getActiveArtifact(activeProject) : null),
-    [activeProject],
+  const activeTab = useMemo(
+    () => (activeProject !== null ? resolveActiveTab(activeProject, activeFileByProject[activeProject.id]) : null),
+    [activeFileByProject, activeProject],
   );
-  const isProjectHome = activeProject === null || activeArtifact === null;
+  // With a PDF in front there is no active artifact: no editor is mounted, and history, Apuntes and the
+  // artifact shortcuts have nothing to act on, so ⌘Z can never reach a diagram that is not on screen.
+  const activeFile = activeTab?.kind === 'file' ? activeTab.file : null;
+  const activeArtifact = activeTab?.kind === 'artifact' ? activeTab.artifact : null;
+  const isFileActive = activeFile !== null;
+  const isProjectHome = activeProject === null || activeTab === null;
   const openArtifactIds = useMemo(() => activeProject === null ? [] : tabsByProject[activeProject.id] ?? [], [activeProject, tabsByProject]);
   const activeHistoryKey = activeProject !== null && activeArtifact !== null
     ? `${activeProject.id}:${activeArtifact.id}`
@@ -633,28 +882,26 @@ function App() {
   }, [isProjectSidebarCollapsed]);
 
   useEffect(() => {
-    if (activeProject === null || activeArtifact === null) return;
+    if (activeProject === null || activeTab === null) return;
     const handleTabShortcut = (event: KeyboardEvent): void => {
       if (document.querySelector('.modal-backdrop, [aria-modal="true"], dialog[open]') !== null) return;
-      const action = artifactTabShortcut(event, {
-        openArtifactIds,
-        activeArtifactId: activeArtifact.id,
-      }, /Mac|iPhone|iPad/.test(navigator.platform));
+      const state = { openArtifactIds, activeArtifactId: tabIdOf(activeTab) };
+      const action = artifactTabShortcut(event, state, /Mac|iPhone|iPad/.test(navigator.platform));
       if (action === null) return;
       event.preventDefault();
       event.stopPropagation();
       blurFocusedElement();
       historyBurstRef.current = null;
       if (action.type === 'close') {
-        const next = closeArtifactTabs({ openArtifactIds, activeArtifactId: activeArtifact.id }, [action.artifactId]);
+        const next = closeArtifactTabs(state, [action.artifactId]);
         setOpenArtifactIds(activeProject.id, next.openArtifactIds);
-        if (next.activeArtifactId !== null) setActiveArtifactId(activeProject.id, next.activeArtifactId);
+        if (next.activeArtifactId !== null) activateTab(activeProject.id, next.activeArtifactId);
         else setActiveProjectId(null);
-      } else setActiveArtifactId(activeProject.id, action.artifactId);
+      } else activateTab(activeProject.id, action.artifactId);
     };
     document.addEventListener('keydown', handleTabShortcut, true);
     return () => document.removeEventListener('keydown', handleTabShortcut, true);
-  }, [activeArtifact, activeProject, openArtifactIds, setActiveArtifactId, setActiveProjectId, setOpenArtifactIds]);
+  });
 
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
 
@@ -678,7 +925,7 @@ function App() {
     const observer = new ResizeObserver(() => setWorkspaceWidth(workspace.clientWidth));
     observer.observe(workspace);
     return () => observer.disconnect();
-  }, [isProjectHome]);
+  }, [isProjectHome, isFileActive]);
 
   const returnFocusToCanvas = useCallback((): void => {
     const panel = document.getElementById('artifact-editor-panel');
@@ -834,7 +1081,8 @@ function App() {
         </div>
       ) : null}
       <ProjectSidebar
-        activeArtifactId={isProjectHome ? null : activeArtifact.id}
+        activeArtifactId={activeArtifact?.id ?? null}
+        activeFileId={activeFile?.id ?? null}
         activeProjectId={activeProjectId}
         isCollapsed={isProjectSidebarCollapsed}
         isHome={isProjectHome}
@@ -853,6 +1101,15 @@ function App() {
         onRenameArtifact={handleRenameArtifact}
         onRenameProject={handleRenameProject}
         onSelectArtifact={handleSelectArtifact}
+        onSelectFile={handleSelectFile}
+        onAddFiles={(projectId) => { void startFilePick(projectId); }}
+        onOpenFileWindow={handleOpenFileWindow}
+        onRenameFile={handleRenameFile}
+        onRevealFile={revealStoredFile}
+        onRemoveFile={(projectId, fileId) => { void handleRemoveFile(projectId, fileId); }}
+        canRevealFiles={hasNativeFiles()}
+        canOpenFileWindow={canOpenFileWindow()}
+        unavailableFileIds={unavailableFileIds}
         onSelectProject={setActiveProjectId}
         onToggleCollapsed={() => setIsProjectSidebarCollapsed((isCollapsed) => !isCollapsed)}
         onThemePreferenceChange={setThemePreference}
@@ -879,9 +1136,12 @@ function App() {
             key={activeProject.id}
             projectName={activeProject.name}
             artifacts={activeProject.artifacts}
+            files={activeProject.files}
             openArtifactIds={openArtifactIds}
-            activeArtifactId={activeArtifact.id}
-            onSelect={(artifactId) => handleSelectArtifact(activeProject.id, artifactId)}
+            activeArtifactId={tabIdOf(activeTab)}
+            onSelect={(tabId) => activeProject.files?.some((file) => file.id === tabId)
+              ? handleSelectFile(activeProject.id, tabId)
+              : handleSelectArtifact(activeProject.id, tabId)}
             onClose={(artifactId) => handleCloseArtifactTab(activeProject.id, artifactId)}
             onCloseOthers={(artifactId) => applyTabState(activeProject.id, closeOtherArtifactTabs(getProjectTabState(activeProject.id), artifactId))}
             onCloseRight={(artifactId) => applyTabState(activeProject.id, closeArtifactTabsToRight(getProjectTabState(activeProject.id), artifactId))}
@@ -891,6 +1151,7 @@ function App() {
               artifactId,
               `${activeProject.artifacts.find((candidate) => candidate.id === artifactId)?.name ?? 'Diagrama'} · vista`,
             )}
+            onOpenFileInWindow={canOpenFileWindow() ? (fileId) => handleOpenFileWindow(activeProject.id, fileId) : undefined}
           />
           <ProjectBackupWarning
             error={backup.error}
@@ -898,111 +1159,128 @@ function App() {
             onRetry={() => void runBackupNow()}
             onExport={() => handleExportProject(activeProject.id)}
           />
-          <NotebookContext.Provider value={notebookContext}>
-            <div
-              className={`artifact-workspace ${isNotebookOpen && isNotebookOverlay ? 'is-notebook-overlay' : ''}`}
-              ref={workspaceRef}
-            >
-              <div id="artifact-editor-panel" className="artifact-editor-panel" role="tabpanel" aria-labelledby={`artifact-tab-${activeArtifact.id}`} tabIndex={-1}>
-                <ArtifactErrorBoundary key={activeArtifact.id} onExportProject={() => handleExportProject(activeProject.id)}>
-                  <Suspense fallback={<EditorLoadingState />}>
-                    {activeArtifact.type === 'class-diagram' ? (
-                      <DiagramEditor
-                        key={`${activeProject.id}:${activeArtifact.id}`}
-                        artifact={activeArtifact}
-                        canRedo={canRedo}
-                        canUndo={canUndo}
-                        saveStatus={saveStatus}
-                        project={activeProject}
-                        theme={theme}
-                        onChangeContent={handleChangeProjectContent}
-                        onRedo={handleRedo}
-                        onUndo={handleUndo}
-                      />
-                    ) : activeArtifact.type === 'class-sequence-diagram' ? (
-                      <ClassSequenceDiagramEditor
-                        key={`${activeProject.id}:${activeArtifact.id}`}
-                        artifact={activeArtifact}
-                        canRedo={canRedo}
-                        canUndo={canUndo}
-                        saveStatus={saveStatus}
-                        project={activeProject}
-                        theme={theme}
-                        onNavigateToArtifact={(targetArtifactId) => handleSelectArtifact(activeProject.id, targetArtifactId)}
-                        onLinkAllSequenceDiagrams={(classModelArtifactId) =>
-                          linkSequenceDiagramsToClassModel(activeProject.id, classModelArtifactId)
-                        }
-                        onChangeContent={handleChangeProjectContent}
-                        onRedo={handleRedo}
-                        onUndo={handleUndo}
-                      />
-                    ) : activeArtifact.type === 'use-case-model' ? (
-                      <UseCaseModelEditor
-                        key={`${activeProject.id}:${activeArtifact.id}`}
-                        artifact={activeArtifact}
-                        canRedo={canRedo}
-                        canUndo={canUndo}
-                        saveStatus={saveStatus}
-                        project={activeProject}
-                        theme={theme}
-                        onChangeContent={handleChangeProjectContent}
-                        onRedo={handleRedo}
-                        onUndo={handleUndo}
-                      />
-                    ) : activeArtifact.type === 'use-case-flow' ? (
-                      <UseCaseFlowEditor
-                        key={`${activeProject.id}:${activeArtifact.id}`}
-                        artifact={activeArtifact}
-                        canRedo={canRedo}
-                        canUndo={canUndo}
-                        saveStatus={saveStatus}
-                        project={activeProject}
-                        theme={theme}
-                        onChangeContent={handleChangeProjectContent}
-                        onRedo={handleRedo}
-                        onUndo={handleUndo}
-                      />
-                    ) : (
-                      <SequenceDiagramEditor
-                        key={`${activeProject.id}:${activeArtifact.id}`}
-                        artifact={activeArtifact}
-                        canRedo={canRedo}
-                        canUndo={canUndo}
-                        saveStatus={saveStatus}
-                        project={activeProject}
-                        theme={theme}
-                        onNavigateToArtifact={(targetArtifactId) =>
-                          handleSelectArtifact(activeProject.id, targetArtifactId)
-                        }
-                        onCreateClassMethod={handleCreateClassMethodFromSequence}
-                        onCompleteClassMethodParameters={handleCompleteClassMethodParameters}
-                        onImportSequenceIntoClassModel={handleImportSequenceIntoClassModel}
-                        onCreateSequenceModel={() => createClassSequenceDiagramArtifact(activeProject.id, 'Clases de secuencias', activeArtifact.id)}
-                        onChangeContent={handleChangeProjectContent}
-                        onRedo={handleRedo}
-                        onUndo={handleUndo}
-                      />
-                    )}
-                  </Suspense>
-                </ArtifactErrorBoundary>
+          {activeFile !== null ? (
+            <div className="artifact-workspace">
+              <div id="artifact-editor-panel" className="artifact-editor-panel" role="tabpanel" aria-labelledby={`artifact-tab-${activeFile.id}`} tabIndex={-1}>
+                <Suspense fallback={<EditorLoadingState />}>
+                  <PdfViewer
+                    key={`${activeFile.id}:${fileReloads[activeFile.id] ?? 0}`}
+                    file={activeFile}
+                    onOpenInWindow={canOpenFileWindow() ? () => handleOpenFileWindow(activeProject.id, activeFile.id) : undefined}
+                    onPageCount={(pageCount) => patchProjectFile(activeProject.id, activeFile.id, { pageCount })}
+                    onRemove={() => { void handleRemoveFile(activeProject.id, activeFile.id); }}
+                    onReplace={() => { void startFilePick(activeProject.id, activeFile.id); }}
+                  />
+                </Suspense>
               </div>
-              {isNotebookOpen ? (
-                <NotebookSheet
-                  key={`${activeProject.id}:${activeArtifact.id}`}
-                  artifactName={activeArtifact.name}
-                  notebook={activeArtifact.notebook}
-                  // Built from the key's ids: a flush on unmount after a tab switch still writes to its own artifact.
-                  onCommit={(notebook) => updateArtifactNotebook(activeProject.id, activeArtifact.id, notebook)}
-                  saveFailed={saveStatus === 'error'}
-                  width={notebookWidth}
-                  onWidthChange={(width) => setNotebookWidth(clampNotebookWidth(width))}
-                  focusRequest={notebookFocus.count}
-                  onClose={closeNotebook}
-                  onReturnFocus={returnFocusToCanvas}
-                />
-              ) : null}
             </div>
-          </NotebookContext.Provider>
+          ) : activeArtifact !== null ? (
+            <NotebookContext.Provider value={notebookContext}>
+              <div
+                className={`artifact-workspace ${isNotebookOpen && isNotebookOverlay ? 'is-notebook-overlay' : ''}`}
+                ref={workspaceRef}
+              >
+                <div id="artifact-editor-panel" className="artifact-editor-panel" role="tabpanel" aria-labelledby={`artifact-tab-${activeArtifact.id}`} tabIndex={-1}>
+                  <ArtifactErrorBoundary key={activeArtifact.id} onExportProject={() => handleExportProject(activeProject.id)}>
+                    <Suspense fallback={<EditorLoadingState />}>
+                      {activeArtifact.type === 'class-diagram' ? (
+                        <DiagramEditor
+                          key={`${activeProject.id}:${activeArtifact.id}`}
+                          artifact={activeArtifact}
+                          canRedo={canRedo}
+                          canUndo={canUndo}
+                          saveStatus={saveStatus}
+                          project={activeProject}
+                          theme={theme}
+                          onChangeContent={handleChangeProjectContent}
+                          onRedo={handleRedo}
+                          onUndo={handleUndo}
+                        />
+                      ) : activeArtifact.type === 'class-sequence-diagram' ? (
+                        <ClassSequenceDiagramEditor
+                          key={`${activeProject.id}:${activeArtifact.id}`}
+                          artifact={activeArtifact}
+                          canRedo={canRedo}
+                          canUndo={canUndo}
+                          saveStatus={saveStatus}
+                          project={activeProject}
+                          theme={theme}
+                          onNavigateToArtifact={(targetArtifactId) => handleSelectArtifact(activeProject.id, targetArtifactId)}
+                          onLinkAllSequenceDiagrams={(classModelArtifactId) =>
+                            linkSequenceDiagramsToClassModel(activeProject.id, classModelArtifactId)
+                          }
+                          onChangeContent={handleChangeProjectContent}
+                          onRedo={handleRedo}
+                          onUndo={handleUndo}
+                        />
+                      ) : activeArtifact.type === 'use-case-model' ? (
+                        <UseCaseModelEditor
+                          key={`${activeProject.id}:${activeArtifact.id}`}
+                          artifact={activeArtifact}
+                          canRedo={canRedo}
+                          canUndo={canUndo}
+                          saveStatus={saveStatus}
+                          project={activeProject}
+                          theme={theme}
+                          onChangeContent={handleChangeProjectContent}
+                          onRedo={handleRedo}
+                          onUndo={handleUndo}
+                        />
+                      ) : activeArtifact.type === 'use-case-flow' ? (
+                        <UseCaseFlowEditor
+                          key={`${activeProject.id}:${activeArtifact.id}`}
+                          artifact={activeArtifact}
+                          canRedo={canRedo}
+                          canUndo={canUndo}
+                          saveStatus={saveStatus}
+                          project={activeProject}
+                          theme={theme}
+                          onChangeContent={handleChangeProjectContent}
+                          onRedo={handleRedo}
+                          onUndo={handleUndo}
+                        />
+                      ) : (
+                        <SequenceDiagramEditor
+                          key={`${activeProject.id}:${activeArtifact.id}`}
+                          artifact={activeArtifact}
+                          canRedo={canRedo}
+                          canUndo={canUndo}
+                          saveStatus={saveStatus}
+                          project={activeProject}
+                          theme={theme}
+                          onNavigateToArtifact={(targetArtifactId) =>
+                            handleSelectArtifact(activeProject.id, targetArtifactId)
+                          }
+                          onCreateClassMethod={handleCreateClassMethodFromSequence}
+                          onCompleteClassMethodParameters={handleCompleteClassMethodParameters}
+                          onImportSequenceIntoClassModel={handleImportSequenceIntoClassModel}
+                          onCreateSequenceModel={() => createClassSequenceDiagramArtifact(activeProject.id, 'Clases de secuencias', activeArtifact.id)}
+                          onChangeContent={handleChangeProjectContent}
+                          onRedo={handleRedo}
+                          onUndo={handleUndo}
+                        />
+                      )}
+                    </Suspense>
+                  </ArtifactErrorBoundary>
+                </div>
+                {isNotebookOpen ? (
+                  <NotebookSheet
+                    key={`${activeProject.id}:${activeArtifact.id}`}
+                    artifactName={activeArtifact.name}
+                    notebook={activeArtifact.notebook}
+                    // Built from the key's ids: a flush on unmount after a tab switch still writes to its own artifact.
+                    onCommit={(notebook) => updateArtifactNotebook(activeProject.id, activeArtifact.id, notebook)}
+                    saveFailed={saveStatus === 'error'}
+                    width={notebookWidth}
+                    onWidthChange={(width) => setNotebookWidth(clampNotebookWidth(width))}
+                    focusRequest={notebookFocus.count}
+                    onClose={closeNotebook}
+                    onReturnFocus={returnFocusToCanvas}
+                  />
+                ) : null}
+              </div>
+            </NotebookContext.Provider>
+          ) : null}
         </div>
       )}
       {projectDialog !== null ? (
@@ -1016,12 +1294,16 @@ function App() {
                 ? 'Renombrar proyecto'
                 : projectDialog.mode === 'createArtifact'
                   ? 'Crear artefacto'
-                  : 'Renombrar artefacto'
+                  : projectDialog.mode === 'renameFile'
+                    ? 'Renombrar archivo'
+                    : 'Renombrar artefacto'
           }
           description={
             projectDialog.mode === 'create' || projectDialog.mode === 'rename'
               ? 'Un proyecto reúne todos los diagramas y especificaciones de un sistema.'
-              : 'El nombre distingue este artefacto de los otros del proyecto.'
+              : projectDialog.mode === 'renameFile'
+                ? 'Solo cambia el nombre que se ve en la app; el PDF original queda como está.'
+                : 'El nombre distingue este artefacto de los otros del proyecto.'
           }
           confirmLabel={projectDialog.mode === 'create' || projectDialog.mode === 'createArtifact' ? 'Crear' : 'Guardar'}
           onCancel={() => setProjectDialog(null)}
@@ -1059,6 +1341,30 @@ function App() {
           onCancel={() => setArtifactTransferDialog(null)}
           onConfirm={handleMoveArtifact}
         />
+      ) : null}
+      <input
+        ref={fileInputRef}
+        accept="application/pdf,.pdf"
+        aria-hidden="true"
+        className="visually-hidden"
+        multiple
+        tabIndex={-1}
+        type="file"
+        onChange={(event) => {
+          handleFileInputChange(Array.from(event.target.files ?? []));
+          event.target.value = '';
+        }}
+      />
+      {isFileDragActive ? (
+        <div className="file-drop-overlay" role="presentation">
+          <div className="file-drop-card">
+            <FileText aria-hidden="true" size={22} />
+            <strong>
+              {activeProject === null ? 'Abrí un proyecto para guardar PDF' : `Soltá el PDF para agregarlo a «${activeProject.name}»`}
+            </strong>
+            {activeProject === null ? null : <span>Hasta 50 MB por archivo.</span>}
+          </div>
+        </div>
       ) : null}
     </div>
   );

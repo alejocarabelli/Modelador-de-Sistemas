@@ -12,6 +12,7 @@ export function CanvasZoom({
   onZoomOut,
   onFit,
   onResetZoom,
+  fitLabel = 'Ajustar el diagrama a la vista',
 }: {
   label: string;
   /** When known, the current zoom shows between the buttons and resets to 100 % on click. */
@@ -20,6 +21,8 @@ export function CanvasZoom({
   onZoomOut: () => void;
   onFit: () => void;
   onResetZoom?: () => void;
+  /** What the fit button does here: the whole diagram, or the width of a PDF page. */
+  fitLabel?: string;
 }) {
   return (
     <div className="v2-zoom" role="group" aria-label={label} data-export-control="true">
@@ -41,7 +44,7 @@ export function CanvasZoom({
         <Plus size={14} aria-hidden="true" />
       </button>
       <span className="v2-zoom-divider" aria-hidden="true" />
-      <button type="button" aria-label="Ajustar el diagrama a la vista" title="Ajustar a la vista" onClick={onFit}>
+      <button type="button" aria-label={fitLabel} title={fitLabel === 'Ajustar el diagrama a la vista' ? 'Ajustar a la vista' : fitLabel} onClick={onFit}>
         <Maximize2 size={14} aria-hidden="true" />
       </button>
     </div>

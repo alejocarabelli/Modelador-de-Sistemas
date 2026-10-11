@@ -1,6 +1,35 @@
+import type { DesignArtifact, DiagramProject, ProjectFile } from '../types/diagram';
+
 export type ArtifactTabState = {
   openArtifactIds: string[];
   activeArtifactId: string | null;
+};
+
+/**
+ * A tab is an artifact or a PDF of the project; their ids never collide, so one list
+ * keeps both and the helpers below treat every id alike.
+ */
+export const projectTabIds = (project: Pick<DiagramProject, 'artifacts' | 'files'>): string[] => [
+  ...project.artifacts.map((artifact) => artifact.id),
+  ...(project.files ?? []).map((file) => file.id),
+];
+
+export type ActiveTab =
+  | { kind: 'artifact'; artifact: DesignArtifact }
+  | { kind: 'file'; file: ProjectFile };
+
+/**
+ * The one thing the project shows: the PDF chosen last, or else the project's active artifact.
+ * `project.activeArtifactId` never points at a file, so the history and the editors stay untouched.
+ */
+export const resolveActiveTab = (
+  project: Pick<DiagramProject, 'artifacts' | 'files' | 'activeArtifactId'>,
+  activeFileId: string | null | undefined,
+): ActiveTab | null => {
+  const file = activeFileId == null ? undefined : (project.files ?? []).find((candidate) => candidate.id === activeFileId);
+  if (file !== undefined) return { kind: 'file', file };
+  const artifact = project.artifacts.find((candidate) => candidate.id === project.activeArtifactId) ?? project.artifacts[0];
+  return artifact === undefined ? null : { kind: 'artifact', artifact };
 };
 
 export const filterArtifactTabs = (ids: readonly unknown[], existingIds: readonly string[]): string[] => {

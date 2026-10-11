@@ -29,6 +29,7 @@
 .artifact-viewer-empty { color: var(--text-muted, #6b7280); margin: 48px auto; max-width: 420px; text-align: center; }
 .artifact-viewer-flow { height: 100%; width: 100%; }
 .artifact-viewer-canvas > .sequence-canvas-scroll { height: 100%; }
+.artifact-viewer-canvas > .pdf-viewer { height: 100%; }
 
 /* Flujo de caso de uso: la misma planilla que imprimen el PDF y el Word. */
 .artifact-viewer-doc { height: 100%; overflow: auto; padding: 24px 16px 48px; }
@@ -53,3 +54,79 @@
 .artifact-viewer-doc-line { overflow-wrap: anywhere; white-space: pre-wrap; }
 .artifact-viewer-doc-line.is-bold { font-weight: 600; }
 .artifact-viewer-doc-empty { color: var(--panel-muted-text); text-align: center; }
+
+/* ─── PDF del proyecto ────────────────────────────────────────────────────
+   Barra arriba, hojas en scroll continuo sobre el fondo de la app y el zoom de
+   siempre en la esquina de siempre. La hoja es blanca en cualquier tema: es papel. */
+.app-shell .pdf-viewer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+
+.app-shell .pdf-viewer-body {
+  min-height: 0;
+  position: relative;
+}
+
+.app-shell .pdf-scroll {
+  background: var(--ui-app-background);
+  inset: 0;
+  overflow: auto;
+  position: absolute;
+}
+
+.app-shell .pdf-scroll:focus-visible { outline: none; }
+
+.app-shell .pdf-pages { position: relative; }
+
+.app-shell .pdf-page-slot {
+  display: flex;
+  justify-content: center;
+  left: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.app-shell .pdf-page {
+  background: white;
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow-1);
+  flex: 0 0 auto;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-shell .pdf-page canvas { display: block; }
+
+.app-shell .pdf-viewer-loading {
+  color: var(--panel-muted-text);
+  font-size: var(--text-sm);
+  inset: 0;
+  margin: 0;
+  padding-top: var(--space-8);
+  position: absolute;
+  text-align: center;
+}
+
+.app-shell .pdf-page-field {
+  align-items: center;
+  color: var(--panel-secondary-text);
+  display: inline-flex;
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+}
+
+.app-shell .pdf-page-field input {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  min-height: var(--control-sm);
+  padding: 0 var(--space-1);
+  text-align: center;
+  width: 5ch;
+}
+
+.app-shell .pdf-viewer-state .artifact-error-card > svg { color: var(--panel-muted-text); margin-bottom: var(--space-2); }
+.app-shell .pdf-viewer-state .artifact-error-card > h3 { margin-top: 0; }

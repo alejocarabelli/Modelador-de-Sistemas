@@ -15,6 +15,7 @@ export const sameProjectContent = (left: DiagramProject, right: DiagramProject):
     artifacts: project.artifacts.map((artifact) => ({
       id: artifact.id, type: artifact.type, name: artifact.name, content: artifact.content, notebook: artifact.notebook,
     })),
+    files: (project.files ?? []).map((file) => ({ id: file.id, name: file.name })),
   });
   return JSON.stringify(canonical(content(left))) === JSON.stringify(canonical(content(right)));
 };
@@ -23,6 +24,7 @@ export const copyProject = (project: DiagramProject, name = project.name): Diagr
   const now = new Date().toISOString();
   const idMap = new Map(project.artifacts.map((artifact) => [artifact.id, createId()]));
   const artifacts = project.artifacts.map((artifact) => ({ ...artifact, id: idMap.get(artifact.id)!, updatedAt: now }));
+  // `files` travels as is: the copy points at the same stored binaries (same ids).
   return {
     ...project,
     id: createId(),
