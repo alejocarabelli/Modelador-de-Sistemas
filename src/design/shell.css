@@ -478,6 +478,35 @@
 .app-shell .v2-sidebar-other:hover .v2-sidebar-row-date,
 .app-shell .v2-sidebar-other:focus-within .v2-sidebar-row-date { opacity: 0; }
 
+/* «Archivos» of the open project: a quiet sub-heading under the artifacts, with
+   its own «+» that shows on hover like the pane's actions. */
+.app-shell .v2-sidebar-subhead {
+  align-items: center;
+  color: var(--panel-faint-text);
+  display: flex;
+  height: 28px;
+  padding-left: var(--space-2);
+}
+
+.app-shell .v2-sidebar-subhead-title {
+  flex: 1 1 auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.app-shell .v2-sidebar-subhead .v2-tool {
+  height: var(--control-sm);
+  min-width: var(--control-sm);
+  opacity: 0;
+}
+
+.app-shell .v2-sidebar-subhead:hover .v2-tool,
+.app-shell .v2-sidebar-subhead:focus-within .v2-tool { opacity: 1; }
+
 .app-shell .v2-sidebar-add {
   color: var(--panel-faint-text);
 }
@@ -1109,3 +1138,35 @@
 .app-shell .artifact-editor-panel:focus {
   outline: none;
 }
+
+/* Dragging PDFs from Finder over the window: the whole app is the drop target. */
+.app-shell .file-drop-overlay {
+  align-items: center;
+  animation: v2-fade-in var(--duration) var(--ease-out);
+  background: color-mix(in srgb, var(--ui-app-background) 72%, transparent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: fixed;
+  z-index: 90;
+}
+
+.app-shell .file-drop-card {
+  align-items: center;
+  background: var(--panel-background);
+  border: 1.5px dashed var(--accent-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
+  color: var(--panel-text);
+  display: grid;
+  gap: var(--space-1);
+  justify-items: center;
+  max-width: min(420px, calc(100vw - var(--space-6)));
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.app-shell .file-drop-card > svg { color: var(--accent); }
+.app-shell .file-drop-card strong { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; }
+.app-shell .file-drop-card span { color: var(--panel-muted-text); font-size: var(--text-sm); }

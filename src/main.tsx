@@ -2,7 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ArtifactViewer } from './components/ArtifactViewer';
-import { parseViewerHash } from './storage/nativeWindows';
+import { ProjectFileWindow } from './components/ProjectFileWindow';
+import { parseFileHash, parseViewerHash } from './storage/nativeWindows';
 import { DialogProvider } from './components/ConfirmDialog';
 import '@fontsource/ibm-plex-sans/400.css';
 import '@fontsource/ibm-plex-sans/500.css';
@@ -30,14 +31,17 @@ document.addEventListener('focusin', (event) => {
   }
 });
 
-// Una ventana secundaria muestra un diagrama en solo lectura y nunca monta la
+// Una ventana secundaria muestra un diagrama o un PDF en solo lectura y nunca monta la
 // aplicación completa: así no guarda proyectos ni pisa lo que se edita en la principal.
 const viewer = parseViewerHash(window.location.hash);
+const fileViewer = parseFileHash(window.location.hash);
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
     {viewer ? (
       <ArtifactViewer projectId={viewer.projectId} artifactId={viewer.artifactId} />
+    ) : fileViewer ? (
+      <ProjectFileWindow projectId={fileViewer.projectId} fileId={fileViewer.fileId} />
     ) : (
       <DialogProvider>
         <App />

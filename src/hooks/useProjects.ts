@@ -10,6 +10,7 @@ import type {
   DiagramContent,
   DiagramProject,
   DesignArtifact,
+  ProjectFile,
   SequenceDiagramContent,
   UseCaseFlowContent,
   UseCaseModelArtifact,
@@ -43,6 +44,7 @@ import {
 } from '../utils/classRenamePropagation';
 import { createId } from '../utils/id';
 import { artifactTypeInfo } from '../constants/artifactTypes';
+import { addFilesToProject, removeFileFromProject, renameFileInProject, patchFileInProject } from '../utils/projectFiles';
 import { copyProject, sameProjectContent, type ProjectImportCounts } from '../utils/projectRecovery';
 import { saveBlob } from '../utils/saveFile';
 import { isNotebookEmpty } from '../utils/artifactNotebook';
@@ -427,6 +429,26 @@ export const useProjects = () => {
           : project,
       ),
     );
+  };
+
+  const updateProject = (projectId: string, update: (project: DiagramProject) => DiagramProject): void => {
+    setProjects((currentProjects) => currentProjects.map((project) => project.id === projectId ? update(project) : project));
+  };
+
+  const addProjectFiles = (projectId: string, files: ProjectFile[]): void => {
+    updateProject(projectId, (project) => addFilesToProject(project, files, new Date().toISOString()));
+  };
+
+  const renameProjectFile = (projectId: string, fileId: string, name: string): void => {
+    updateProject(projectId, (project) => renameFileInProject(project, fileId, name, new Date().toISOString()));
+  };
+
+  const removeProjectFile = (projectId: string, fileId: string): void => {
+    updateProject(projectId, (project) => removeFileFromProject(project, fileId, new Date().toISOString()));
+  };
+
+  const patchProjectFile = (projectId: string, fileId: string, patch: Parameters<typeof patchFileInProject>[2]): void => {
+    updateProject(projectId, (project) => patchFileInProject(project, fileId, patch));
   };
 
   const deleteProject = (projectId: string): void => {
@@ -824,6 +846,10 @@ export const useProjects = () => {
     createProject,
     deleteArtifact,
     deleteProject,
+    addProjectFiles,
+    renameProjectFile,
+    removeProjectFile,
+    patchProjectFile,
     projects,
     importProject,
     importProjects,

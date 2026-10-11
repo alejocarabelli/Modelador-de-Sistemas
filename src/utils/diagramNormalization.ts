@@ -32,6 +32,7 @@ import { normalizeAssociationEdge } from './association';
 import { createId } from './id';
 import { normalizeArtifactNotebook } from './artifactNotebook';
 import { normalizeSequenceDiagramContent } from './sequenceDiagram';
+import { normalizeProjectFiles } from './projectFiles';
 
 const DEFAULT_CLASS_ARTIFACT_ID = 'default-class-diagram';
 
@@ -427,6 +428,7 @@ export const normalizeDiagramProject = (project: Partial<DiagramProject> | Parti
       { createdAt, updatedAt },
     );
 
+    const legacyFiles = normalizeProjectFiles((project as Partial<DiagramProject>).files);
     return {
       id,
       name,
@@ -434,6 +436,7 @@ export const normalizeDiagramProject = (project: Partial<DiagramProject> | Parti
       updatedAt,
       activeArtifactId: artifact.id,
       artifacts: [artifact],
+      ...(legacyFiles.length > 0 ? { files: legacyFiles } : {}),
     };
   }
 
@@ -453,6 +456,7 @@ export const normalizeDiagramProject = (project: Partial<DiagramProject> | Parti
   const activeArtifactId = artifacts.some((artifact) => artifact.id === requestedActiveArtifactId)
     ? requestedActiveArtifactId
     : artifacts[0].id;
+  const files = normalizeProjectFiles((project as Partial<DiagramProject>).files);
 
   return {
     id,
@@ -461,6 +465,7 @@ export const normalizeDiagramProject = (project: Partial<DiagramProject> | Parti
     updatedAt,
     activeArtifactId,
     artifacts,
+    ...(files.length > 0 ? { files } : {}),
   };
 };
 

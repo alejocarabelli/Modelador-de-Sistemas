@@ -1,8 +1,11 @@
 import {
   Blocks,
   Download,
-  GitBranch,
+  ExternalLink,
+  FileText,
   FolderClosed,
+  FolderSearch,
+  GitBranch,
   Home,
   Keyboard,
   MoreHorizontal,
@@ -32,6 +35,7 @@ import {
 } from '../storage/uiPreferences';
 import { filterProjectsByName, formatShortProjectDate, shouldShowProjectFilter, sortProjectsByRecency } from '../utils/projectSidebar';
 import { SidebarFilter, SidebarPane, SidebarSash } from './SidebarPane';
+import { fileDisplayName, projectFiles } from '../utils/projectFiles';
 import type { LatestRelease } from '../utils/appUpdate';
 
 type ProjectSidebarProps = {
@@ -58,6 +62,20 @@ type ProjectSidebarProps = {
   onSelectProject: (projectId: string) => void;
   onToggleCollapsed: () => void;
   onDismissUpdate?: () => void;
+  /** The PDF being shown instead of an artifact, if any. */
+  activeFileId?: string | null;
+  /** PDFs known to be missing on this computer (their binary is not stored here). */
+  unavailableFileIds?: ReadonlySet<string>;
+  /** Mac only: the PDFs sit in a folder that Finder can show. */
+  canRevealFiles?: boolean;
+  /** False where a PDF cannot have its own window (the Windows shell). */
+  canOpenFileWindow?: boolean;
+  onAddFiles?: (projectId: string) => void;
+  onSelectFile?: (projectId: string, fileId: string) => void;
+  onOpenFileWindow?: (projectId: string, fileId: string) => void;
+  onRenameFile?: (projectId: string, fileId: string) => void;
+  onRevealFile?: (fileId: string) => void;
+  onRemoveFile?: (projectId: string, fileId: string) => void;
   projects: DiagramProject[];
   /** A newer release to announce, already filtered for a hidden version. */
   update?: LatestRelease | null;
@@ -66,7 +84,8 @@ type ProjectSidebarProps = {
 type SidebarOptionsMenuState = {
   artifactId?: string;
   canDelete?: boolean;
-  kind: 'artifact' | 'project';
+  fileId?: string;
+  kind: 'artifact' | 'file' | 'project';
   left: number;
   projectId: string;
   top: number;
@@ -119,6 +138,16 @@ export function ProjectSidebar({
   projects,
   themePreference,
   update,
+  activeFileId = null,
+  unavailableFileIds,
+  canRevealFiles = false,
+  canOpenFileWindow = false,
+  onAddFiles,
+  onSelectFile,
+  onOpenFileWindow,
+  onRenameFile,
+  onRevealFile,
+  onRemoveFile,
 }: ProjectSidebarProps) {
   const optionsMenuRef = useRef<HTMLDivElement | null>(null);
   const newArtifactMenuRef = useRef<HTMLDivElement | null>(null);
@@ -281,6 +310,27 @@ export function ProjectSidebar({
               >
                 <Plus size={16} aria-hidden="true" />
               </button>
+              {projectFiles(activeProject).length > 0 ? (
+                <>
+                  <span className="v2-sidebar-rail-divider" aria-hidden="true" />
+                  {projectFiles(activeProject).map((file) => {
+                    const isCurrent = file.id === activeFileId;
+                    return (
+                      <button
+                        aria-current={isCurrent ? 'page' : undefined}
+                        aria-label={fileDisplayName(file.name)}
+                        className={`v2-tool ${isCurrent ? 'is-pressed' : ''}`}
+                        key={file.id}
+                        type="button"
+                        onClick={() => onSelectFile?.(activeProject.id, file.id)}
+                        title={`${fileDisplayName(file.name)} · PDF`}
+                      >
+                        <FileText size={16} aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </>
+              ) : null}
             </>
           ) : null}
         </nav>
@@ -406,6 +456,65 @@ export function ProjectSidebar({
                   </button>
                 </li>
               </ul>
+              {onAddFiles !== undefined ? (
+                <section aria-labelledby="sidebar-files-title" className="v2-sidebar-files">
+                  <div className="v2-sidebar-subhead">
+                    <h3 className="v2-sidebar-subhead-title" id="sidebar-files-title">Archivos</h3>
+                    <button
+                      aria-label="Agregar PDF"
+                      className="v2-tool sidebar-section-action"
+                      type="button"
+                      onClick={() => onAddFiles(openProject.id)}
+                      title="Agregar PDF…"
+                    >
+                      <Plus size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <ul className="v2-sidebar-artifacts" aria-label={`Archivos de ${openProject.name}`}>
+                    {projectFiles(openProject).map((file) => {
+                      const isCurrent = file.id === activeFileId;
+                      const isMissing = unavailableFileIds?.has(file.id) === true;
+                      const detail = isMissing ? 'no disponible' : file.pageCount !== undefined ? `${file.pageCount} pág.` : '';
+                      return (
+                        <li key={file.id} className={`v2-sidebar-row-wrap v2-sidebar-other ${isCurrent ? 'is-current' : ''}`}>
+                          <button
+                            aria-current={isCurrent ? 'page' : undefined}
+                            className="v2-sidebar-row v2-sidebar-artifact-row"
+                            type="button"
+                            title={fileDisplayName(file.name)}
+                            onClick={() => onSelectFile?.(openProject.id, file.id)}
+                          >
+                            <FileText size={15} aria-hidden="true" />
+                            <span className="v2-sidebar-row-label">{fileDisplayName(file.name)}</span>
+                            {detail !== '' ? <span className="v2-sidebar-row-date" aria-hidden="true">{detail}</span> : null}
+                          </button>
+                          <button
+                            aria-controls="sidebar-options-menu"
+                            aria-expanded={optionsMenu?.kind === 'file' && optionsMenu.fileId === file.id}
+                            aria-haspopup="menu"
+                            aria-label={`Opciones de ${fileDisplayName(file.name)}`}
+                            className="v2-tool sidebar-row-menu"
+                            type="button"
+                            onClick={(event) => openOptionsMenu({ fileId: file.id, kind: 'file', projectId: openProject.id }, event)}
+                          >
+                            <MoreHorizontal size={15} aria-hidden="true" />
+                          </button>
+                        </li>
+                      );
+                    })}
+                    <li>
+                      <button
+                        className="v2-sidebar-row v2-sidebar-add"
+                        type="button"
+                        onClick={() => onAddFiles(openProject.id)}
+                      >
+                        <Plus size={15} aria-hidden="true" />
+                        <span className="v2-sidebar-row-label">Agregar PDF…</span>
+                      </button>
+                    </li>
+                  </ul>
+                </section>
+              ) : null}
             </SidebarPane>
           ) : null}
 
@@ -487,17 +596,25 @@ export function ProjectSidebar({
 
       {optionsMenu !== null ? (
         <div
-          aria-label={optionsMenu.kind === 'project' ? 'Opciones del proyecto' : 'Opciones del artefacto'}
+          aria-label={optionsMenu.kind === 'project' ? 'Opciones del proyecto' : optionsMenu.kind === 'file' ? 'Opciones del archivo' : 'Opciones del artefacto'}
           className="artifact-floating-menu"
           id="sidebar-options-menu"
           ref={optionsMenuRef}
           role="menu"
           style={{ left: optionsMenu.left, top: optionsMenu.top }}
         >
+          {optionsMenu.kind === 'file' && optionsMenu.fileId !== undefined && canOpenFileWindow ? (
+            <MenuItem icon={ExternalLink} onSelect={() => {
+              onOpenFileWindow?.(optionsMenu.projectId, optionsMenu.fileId!);
+              setOptionsMenu(null);
+            }}>Abrir en ventana nueva</MenuItem>
+          ) : null}
           <MenuItem
             icon={Pencil}
             onSelect={() => {
-              if (optionsMenu.kind === 'artifact' && optionsMenu.artifactId !== undefined) {
+              if (optionsMenu.kind === 'file' && optionsMenu.fileId !== undefined) {
+                onRenameFile?.(optionsMenu.projectId, optionsMenu.fileId);
+              } else if (optionsMenu.kind === 'artifact' && optionsMenu.artifactId !== undefined) {
                 onRenameArtifact(optionsMenu.projectId, optionsMenu.artifactId);
               } else {
                 onRenameProject(optionsMenu.projectId);
@@ -523,6 +640,13 @@ export function ProjectSidebar({
                 Exportar proyecto (JSON)
               </MenuItem>
             </>
+          ) : optionsMenu.kind === 'file' ? (
+            canRevealFiles && optionsMenu.fileId !== undefined ? (
+              <MenuItem icon={FolderSearch} onSelect={() => {
+                onRevealFile?.(optionsMenu.fileId!);
+                setOptionsMenu(null);
+              }}>Mostrar en Finder</MenuItem>
+            ) : null
           ) : optionsMenu.artifactId !== undefined ? (
             <>
               <MenuItem icon={Download} onSelect={() => {
@@ -548,7 +672,9 @@ export function ProjectSidebar({
             disabled={optionsMenu.kind === 'artifact' && !optionsMenu.canDelete}
             icon={Trash2}
             onSelect={() => {
-              if (optionsMenu.kind === 'artifact' && optionsMenu.artifactId !== undefined) {
+              if (optionsMenu.kind === 'file' && optionsMenu.fileId !== undefined) {
+                onRemoveFile?.(optionsMenu.projectId, optionsMenu.fileId);
+              } else if (optionsMenu.kind === 'artifact' && optionsMenu.artifactId !== undefined) {
                 onDeleteArtifact(optionsMenu.projectId, optionsMenu.artifactId);
               } else {
                 onDeleteProject(optionsMenu.projectId);
@@ -556,7 +682,7 @@ export function ProjectSidebar({
               setOptionsMenu(null);
             }}
           >
-            {optionsMenu.kind === 'project' ? 'Eliminar proyecto…' : 'Eliminar…'}
+            {optionsMenu.kind === 'project' ? 'Eliminar proyecto…' : optionsMenu.kind === 'file' ? 'Quitar del proyecto…' : 'Eliminar…'}
           </MenuItem>
         </div>
       ) : null}

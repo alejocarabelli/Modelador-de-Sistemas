@@ -71,4 +71,34 @@ describe('ArtifactTabs', () => {
     expect(tab.props.tabIndex).toBe(0);
     expect(tab.props['aria-selected']).toBe(true);
   });
+
+  describe('PDF tabs', () => {
+    const pdf = { id: 'enunciado', name: 'Enunciado TP2.pdf', size: 10, addedAt: '2026-10-01T00:00:00.000Z' };
+    const renderTabs = (extra: Partial<Parameters<typeof ArtifactTabs>[0]> = {}) => renderToString(<ArtifactTabs
+      projectName="Proyecto" artifacts={[artifact]} files={[pdf]} openArtifactIds={[artifact.id, pdf.id]} activeArtifactId={pdf.id}
+      onSelect={vi.fn()} onClose={vi.fn()} onCloseOthers={vi.fn()} onCloseRight={vi.fn()} onReorder={vi.fn()} {...extra}
+    />);
+
+    it('shows the PDF next to the artifacts, without its extension, and selects only the active one', () => {
+      const html = renderTabs();
+      expect(html.match(/role="tab"/g)).toHaveLength(2);
+      expect(html).toContain('id="artifact-tab-enunciado"');
+      expect(html).toContain('aria-label="Enunciado TP2"');
+      expect(html).toContain('Enunciado TP2 · PDF');
+      expect(html).toContain('<h1 class="visually-hidden">Enunciado TP2</h1>');
+      expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
+      expect(html.indexOf('id="artifact-tab-classes"')).toBeLessThan(html.indexOf('id="artifact-tab-enunciado"'));
+    });
+
+    it('does not show a tab for a PDF that no longer exists', () => {
+      const html = renderTabs({ files: [], activeArtifactId: artifact.id });
+      expect(html.match(/role="tab"/g)).toHaveLength(1);
+    });
+
+    it('labels the close button with the display name and keeps the artifact tab calls working', () => {
+      const tab = ArtifactTab({ artifact: pdf, active: true, onSelect: vi.fn(), onClose: vi.fn() });
+      const close = (tab.props.children as ReactElement[])[2] as ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>;
+      expect(close.props['aria-label']).toBe('Cerrar Enunciado TP2');
+    });
+  });
 });

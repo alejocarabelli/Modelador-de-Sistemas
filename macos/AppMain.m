@@ -9,6 +9,65 @@
 static NSString *const kAppName = @"Modelador de Sistemas";
 static NSString *const kAppScheme = @"modeladorv2";
 
+#pragma mark - Archivos (PDF) de los proyectos
+
+/*
+ * Los PDF de los proyectos viven en ~/Documents/Modelador de Sistemas/Archivos/<fileId>.pdf, junto a
+ * los respaldos (y, como ellos, se sincronizan con iCloud Drive si Documentos está en iCloud). El proyecto
+ * guarda solo los metadatos. Toda ruta se arma con un fileId validado y se verifica que, ya resuelta,
+ * siga dentro de esa carpeta.
+ */
+static NSUInteger const kMaxArchivoBytes = 50 * 1024 * 1024;
+static NSTimeInterval const kArchivoMinAgeForCollection = 7 * 24 * 60 * 60;
+static NSString *const kArchivosPathPrefix = @"__archivos/";
+
+static NSURL *DocumentsSubfolder(NSString *name, BOOL create, NSError **error) {
+    NSURL *documents = [[NSFileManager defaultManager] URLForDirectory:NSDocumentDirectory
+                                                              inDomain:NSUserDomainMask
+                                                     appropriateForURL:nil
+                                                                create:create
+                                                                 error:error];
+    if (!documents) {
+        return nil;
+    }
+    NSURL *directory = [[documents URLByAppendingPathComponent:kAppName isDirectory:YES]
+        URLByAppendingPathComponent:name isDirectory:YES];
+    if (create && ![[NSFileManager defaultManager] createDirectoryAtURL:directory
+                                            withIntermediateDirectories:YES
+                                                             attributes:nil
+                                                                  error:error]) {
+        return nil;
+    }
+    return directory;
+}
+
+static BOOL IsValidFileId(id value) {
+    if (![value isKindOfClass:NSString.class]) {
+        return NO;
+    }
+    NSString *fileId = (NSString *)value;
+    NSRange match = [fileId rangeOfString:@"^[A-Za-z0-9_-]{1,64}$" options:NSRegularExpressionSearch];
+    return match.location == 0 && match.length == fileId.length;
+}
+
+/// El PDF de un fileId válido, o nil si el id no sirve o la ruta resuelta se sale de la carpeta Archivos.
+static NSURL *ArchivoURL(id fileId, NSURL *directory) {
+    if (!IsValidFileId(fileId) || !directory) {
+        return nil;
+    }
+    // La carpeta se resuelve primero (Archivos o Documentos pueden ser enlaces) y el destino se arma desde ella:
+    // un PDF que todavía no existe no se puede resolver por sí solo.
+    NSURL *resolvedDirectory = directory.URLByResolvingSymlinksInPath;
+    NSURL *candidate = [resolvedDirectory URLByAppendingPathComponent:[(NSString *)fileId stringByAppendingPathExtension:@"pdf"]
+                                                          isDirectory:NO];
+    NSString *root = [resolvedDirectory.path stringByAppendingString:@"/"];
+    return [candidate.URLByResolvingSymlinksInPath.path hasPrefix:root] ? candidate : nil;
+}
+
+static BOOL HasPDFSignature(NSData *head) {
+    return head.length >= 5 && memcmp(head.bytes, "%PDF-", 5) == 0;
+}
+
 @interface AppSchemeHandler : NSObject <WKURLSchemeHandler>
 @property(nonatomic, strong) NSURL *resourceDirectory;
 - (instancetype)initWithResourceDirectory:(NSURL *)resourceDirectory;
@@ -34,7 +93,12 @@ static NSString *const kAppScheme = @"modeladorv2";
         @"jpeg": @"image/jpeg",
         @"svg": @"image/svg+xml",
         @"woff": @"font/woff",
-        @"woff2": @"font/woff2"
+        @"woff2": @"font/woff2",
+        // pdf.js: el worker es un módulo .mjs (con otro tipo WebKit no lo carga), más sus decodificadores y CMaps.
+        @"mjs": @"text/javascript",
+        @"pdf": @"application/pdf",
+        @"wasm": @"application/wasm",
+        @"bcmap": @"application/octet-stream"
     };
     return types[extension.lowercaseString] ?: @"application/octet-stream";
 }
@@ -48,29 +112,50 @@ static NSString *const kAppScheme = @"modeladorv2";
         requestedPath = @"index.html";
     }
 
-    NSURL *fileURL = [self.resourceDirectory URLByAppendingPathComponent:requestedPath];
-    NSString *rootPath = self.resourceDirectory.URLByStandardizingPath.path;
-    NSString *filePath = fileURL.URLByStandardizingPath.path;
-    if (![filePath hasPrefix:[rootPath stringByAppendingString:@"/"]] && ![filePath isEqualToString:rootPath]) {
-        NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNoPermissionsToReadFile userInfo:nil];
-        [urlSchemeTask didFailWithError:error];
-        return;
+    NSURL *fileURL = nil;
+    NSDataReadingOptions readingOptions = 0;
+    if ([requestedPath hasPrefix:kArchivosPathPrefix]) {
+        // Los PDF de los proyectos salen de Documents, no del bundle: solo «<fileId>.pdf», nada de subcarpetas.
+        NSString *name = [requestedPath substringFromIndex:kArchivosPathPrefix.length];
+        BOOL isPDFName = [name.pathExtension isEqualToString:@"pdf"];
+        fileURL = isPDFName ? ArchivoURL(name.stringByDeletingPathExtension, DocumentsSubfolder(@"Archivos", NO, nil)) : nil;
+        readingOptions = NSDataReadingMappedIfSafe;
+        if (!fileURL) {
+            NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNoPermissionsToReadFile userInfo:nil];
+            [urlSchemeTask didFailWithError:error];
+            return;
+        }
+    } else {
+        fileURL = [self.resourceDirectory URLByAppendingPathComponent:requestedPath];
+        NSString *rootPath = self.resourceDirectory.URLByStandardizingPath.path;
+        NSString *filePath = fileURL.URLByStandardizingPath.path;
+        if (![filePath hasPrefix:[rootPath stringByAppendingString:@"/"]] && ![filePath isEqualToString:rootPath]) {
+            NSError *error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNoPermissionsToReadFile userInfo:nil];
+            [urlSchemeTask didFailWithError:error];
+            return;
+        }
     }
 
     NSError *readError = nil;
-    NSData *data = [NSData dataWithContentsOfURL:fileURL options:0 error:&readError];
+    NSData *data = [NSData dataWithContentsOfURL:fileURL options:readingOptions error:&readError];
     if (!data) {
         [urlSchemeTask didFailWithError:readError ?: [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil]];
         return;
     }
 
-    NSURLResponse *response = [[NSURLResponse alloc]
+    NSString *extension = fileURL.pathExtension.lowercaseString;
+    BOOL isText = [@[@"html", @"js", @"mjs", @"css"] containsObject:extension];
+    NSString *mime = [self mimeTypeForExtension:extension];
+    // Una respuesta HTTP (200): con una NSURLResponse común fetch() ve status 0 y ok == false, y el visor
+    // de PDF tomaba por faltante un archivo que sí estaba.
+    NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc]
         initWithURL:urlSchemeTask.request.URL
-        MIMEType:[self mimeTypeForExtension:fileURL.pathExtension]
-        expectedContentLength:(NSInteger)data.length
-        textEncodingName:[fileURL.pathExtension.lowercaseString isEqualToString:@"html"] ||
-                         [fileURL.pathExtension.lowercaseString isEqualToString:@"js"] ||
-                         [fileURL.pathExtension.lowercaseString isEqualToString:@"css"] ? @"utf-8" : nil];
+         statusCode:200
+        HTTPVersion:@"HTTP/1.1"
+       headerFields:@{
+           @"Content-Type": isText ? [mime stringByAppendingString:@"; charset=utf-8"] : mime,
+           @"Content-Length": [NSString stringWithFormat:@"%lu", (unsigned long)data.length]
+       }];
     [urlSchemeTask didReceiveResponse:response];
     [urlSchemeTask didReceiveData:data];
     [urlSchemeTask didFinish];
@@ -346,6 +431,285 @@ static NSUInteger const kBackupsToKeep = 10;
 @end
 
 /*
+ * Puente de los PDF de los proyectos (ver «Archivos» más arriba). La lectura no pasa por acá: el
+ * AppSchemeHandler los sirve en modeladorv2://app/__archivos/<fileId>.pdf. Las ventanas secundarias
+ * reciben una instancia de solo consulta (readOnly): pueden mostrar en Finder y abrir en Vista
+ * Previa, pero no guardar ni recolectar.
+ *
+ * Nada acá borra para siempre: lo que sobra va a la Papelera. Ni quitar un archivo ni borrar un proyecto
+ * tocan el PDF (podría estar en un respaldo); solo `gc`, al iniciar, mueve a la Papelera los que ningún
+ * proyecto ni respaldo nombra y que tienen más de una semana.
+ */
+@interface FilesBridge : NSObject <WKScriptMessageHandlerWithReply>
+@property(nonatomic, weak) NSWindow *window;
+@property(nonatomic) BOOL readOnly;
+@end
+
+@implementation FilesBridge
+
+- (NSDictionary *)descriptorForURL:(NSURL *)url name:(NSString *)name {
+    NSNumber *size = nil;
+    [url getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+    return @{@"id": url.lastPathComponent.stringByDeletingPathExtension, @"name": name, @"size": size ?: @0};
+}
+
+/// Copia un PDF elegido en el panel a Archivos. Devuelve el descriptor, o el motivo del rechazo.
+- (NSDictionary *)importPDFAtURL:(NSURL *)source
+                       directory:(NSURL *)directory
+                         fileId:(NSString *)requestedId
+                         failure:(NSString **)failure {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSNumber *size = nil;
+    [source getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+    if (size.unsignedLongLongValue == 0) {
+        *failure = @"empty";
+        return nil;
+    }
+    if (size.unsignedLongLongValue > kMaxArchivoBytes) {
+        *failure = @"too-large";
+        return nil;
+    }
+    NSFileHandle *handle = [NSFileHandle fileHandleForReadingFromURL:source error:nil];
+    NSData *head = [handle readDataUpToLength:5 error:nil];
+    [handle closeAndReturnError:nil];
+    if (!HasPDFSignature(head)) {
+        *failure = @"not-pdf";
+        return nil;
+    }
+    NSString *fileId = requestedId ?: NSUUID.UUID.UUIDString.lowercaseString;
+    NSURL *destination = ArchivoURL(fileId, directory);
+    NSURL *temporary = [directory URLByAppendingPathComponent:[NSString stringWithFormat:@".%@.tmp", NSUUID.UUID.UUIDString]];
+    if (!destination || ![manager copyItemAtURL:source toURL:temporary error:nil]) {
+        *failure = @"failed";
+        return nil;
+    }
+    BOOL placed = [manager fileExistsAtPath:destination.path]
+        ? [manager replaceItemAtURL:destination withItemAtURL:temporary backupItemName:nil options:0 resultingItemURL:nil error:nil]
+        : [manager moveItemAtURL:temporary toURL:destination error:nil];
+    if (!placed) {
+        [manager removeItemAtURL:temporary error:nil];
+        *failure = @"failed";
+        return nil;
+    }
+    // El nombre que se muestra es el del PDF original, no el del archivo guardado (que se llama como su id).
+    return [self descriptorForURL:destination name:source.lastPathComponent];
+}
+
+- (void)pickWithDirectory:(NSURL *)directory replaceId:(NSString *)replaceId reply:(void (^)(id reply, NSString *errorMessage))replyHandler {
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.allowsMultipleSelection = replaceId == nil;
+    // allowedContentTypes pide UniformTypeIdentifiers (macOS 11+) y este archivo se compila solo con AppKit y WebKit.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    panel.allowedFileTypes = @[@"pdf"];
+#pragma clang diagnostic pop
+    panel.message = replaceId ? @"Elegí el PDF para volver a agregarlo." : @"Elegí uno o más PDF para agregar al proyecto.";
+    panel.prompt = @"Agregar";
+
+    void (^finish)(NSModalResponse) = ^(NSModalResponse result) {
+        if (result != NSModalResponseOK || panel.URLs.count == 0) {
+            replyHandler(NSNull.null, nil);
+            return;
+        }
+        NSArray<NSURL *> *chosen = replaceId ? @[panel.URLs.firstObject] : panel.URLs;
+        // Copiar hasta 50 MB por archivo no corresponde al hilo principal.
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSMutableArray *files = [NSMutableArray array];
+            NSMutableArray *rejected = [NSMutableArray array];
+            for (NSURL *url in chosen) {
+                NSString *failure = nil;
+                NSDictionary *descriptor = [self importPDFAtURL:url directory:directory fileId:replaceId failure:&failure];
+                if (descriptor) {
+                    [files addObject:descriptor];
+                } else {
+                    [rejected addObject:@{@"name": url.lastPathComponent, @"reason": failure ?: @"failed"}];
+                }
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                replyHandler(@{@"files": files, @"rejected": rejected}, nil);
+            });
+        });
+    };
+    if (self.window) {
+        [panel beginSheetModalForWindow:self.window completionHandler:finish];
+    } else {
+        [panel beginWithCompletionHandler:finish];
+    }
+}
+
+/// Siempre a la Papelera, nunca borrado definitivo; una subclase de prueba lo intercepta.
+- (BOOL)trashItemAtURL:(NSURL *)url {
+    return [NSFileManager.defaultManager trashItemAtURL:url resultingItemURL:nil error:nil];
+}
+
+- (NSTimeInterval)minimumAgeForCollection {
+    return kArchivoMinAgeForCollection;
+}
+
+/// La carpeta de respaldos; un puente de prueba la reemplaza.
+- (NSURL *)backupsDirectory {
+    return DocumentsSubfolder(@"Respaldos", NO, nil);
+}
+
+/// Los PDF que ningún proyecto ni respaldo nombra y que llevan más de una semana en la carpeta van a la Papelera.
+- (NSUInteger)collectUnreferencedIn:(NSURL *)directory referenced:(NSSet<NSString *> *)referenced {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSArray<NSURL *> *entries = [manager contentsOfDirectoryAtURL:directory
+                                       includingPropertiesForKeys:@[NSURLContentModificationDateKey, NSURLCreationDateKey, NSURLAddedToDirectoryDateKey]
+                                                          options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                            error:nil];
+    NSMutableArray<NSURL *> *candidates = [NSMutableArray array];
+    for (NSURL *entry in entries) {
+        NSString *fileId = entry.lastPathComponent.stringByDeletingPathExtension;
+        if (![entry.pathExtension isEqualToString:@"pdf"] || !IsValidFileId(fileId) || [referenced containsObject:fileId]) {
+            continue;
+        }
+        // La fecha más reciente de las que tenga: un PDF viejo recién copiado no es viejo para esta carpeta.
+        NSDate *newest = nil;
+        for (NSURLResourceKey key in @[NSURLContentModificationDateKey, NSURLCreationDateKey, NSURLAddedToDirectoryDateKey]) {
+            NSDate *date = nil;
+            [entry getResourceValue:&date forKey:key error:nil];
+            if (date && (!newest || [date compare:newest] == NSOrderedDescending)) newest = date;
+        }
+        // Sin ninguna fecha legible no se sabe cuánto lleva ahí: se conserva.
+        if (newest && -[newest timeIntervalSinceNow] > [self minimumAgeForCollection]) {
+            [candidates addObject:entry];
+        }
+    }
+    if (candidates.count == 0) {
+        return 0;
+    }
+    // Un respaldo que nombra el archivo puede restaurar un proyecto que lo usa: ese PDF se queda.
+    // Si no se puede leer la carpeta de respaldos o alguno de ellos, no se recolecta nada: no hay forma de
+    // saber qué nombran. Que la carpeta no exista (nunca hubo respaldos) sí es una respuesta válida.
+    NSURL *backups = [self backupsDirectory];
+    NSMutableArray<NSString *> *backupTexts = [NSMutableArray array];
+    NSError *listError = nil;
+    NSArray<NSURL *> *backupEntries = [manager contentsOfDirectoryAtURL:backups includingPropertiesForKeys:nil options:NSDirectoryEnumerationSkipsHiddenFiles error:&listError];
+    if (!backupEntries) {
+        BOOL missing = [listError.domain isEqualToString:NSCocoaErrorDomain] && listError.code == NSFileReadNoSuchFileError;
+        if (!missing) return 0;
+        backupEntries = @[];
+    }
+    for (NSURL *backup in backupEntries) {
+        if ([backup.pathExtension isEqualToString:@"json"]) {
+            NSString *text = [NSString stringWithContentsOfURL:backup encoding:NSUTF8StringEncoding error:nil];
+            if (!text) return 0;
+            [backupTexts addObject:text];
+        }
+    }
+    NSUInteger trashed = 0;
+    for (NSURL *candidate in candidates) {
+        NSString *fileId = candidate.lastPathComponent.stringByDeletingPathExtension;
+        BOOL named = NO;
+        for (NSString *text in backupTexts) {
+            if ([text rangeOfString:fileId].location != NSNotFound) {
+                named = YES;
+                break;
+            }
+        }
+        if (!named && [self trashItemAtURL:candidate]) {
+            trashed++;
+        }
+    }
+    return trashed;
+}
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message
+                 replyHandler:(void (^)(id reply, NSString *errorMessage))replyHandler {
+    NSDictionary *body = [message.body isKindOfClass:NSDictionary.class] ? message.body : nil;
+    NSString *action = [body[@"action"] isKindOfClass:NSString.class] ? body[@"action"] : @"";
+    BOOL readOnlyAction = [@[@"list", @"reveal", @"open-external"] containsObject:action];
+    if (self.readOnly && !readOnlyAction) {
+        replyHandler(nil, @"Acción no permitida en esta ventana.");
+        return;
+    }
+    NSError *error = nil;
+    BOOL writesFiles = [@[@"save", @"pick"] containsObject:action];
+    NSURL *directory = DocumentsSubfolder(@"Archivos", writesFiles, &error);
+    if (!directory) {
+        replyHandler(nil, error.localizedDescription ?: @"No se pudo preparar la carpeta de archivos.");
+        return;
+    }
+
+    if ([action isEqualToString:@"list"]) {
+        NSMutableArray *ids = [NSMutableArray array];
+        for (NSURL *entry in [NSFileManager.defaultManager contentsOfDirectoryAtURL:directory includingPropertiesForKeys:nil options:NSDirectoryEnumerationSkipsHiddenFiles error:nil]) {
+            NSString *fileId = entry.lastPathComponent.stringByDeletingPathExtension;
+            if ([entry.pathExtension isEqualToString:@"pdf"] && ArchivoURL(fileId, directory)) [ids addObject:fileId];
+        }
+        replyHandler(@{@"ids": ids}, nil);
+        return;
+    }
+
+    if ([action isEqualToString:@"pick"]) {
+        id replaceId = body[@"replaceId"];
+        if (replaceId && !IsValidFileId(replaceId)) {
+            replyHandler(nil, @"Identificador de archivo inválido.");
+            return;
+        }
+        [self pickWithDirectory:directory replaceId:replaceId reply:replyHandler];
+        return;
+    }
+
+    if ([action isEqualToString:@"gc"]) {
+        NSMutableSet<NSString *> *referenced = [NSMutableSet set];
+        for (id fileId in [body[@"referenced"] isKindOfClass:NSArray.class] ? body[@"referenced"] : @[]) {
+            if (IsValidFileId(fileId)) [referenced addObject:fileId];
+        }
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSUInteger trashed = [self collectUnreferencedIn:directory referenced:referenced];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                replyHandler(@{@"trashed": @(trashed)}, nil);
+            });
+        });
+        return;
+    }
+
+    NSURL *fileURL = ArchivoURL(body[@"fileId"], directory);
+    if (!fileURL) {
+        replyHandler(nil, @"Identificador de archivo inválido.");
+        return;
+    }
+
+    if ([action isEqualToString:@"save"]) {
+        NSString *encoded = [body[@"data"] isKindOfClass:NSString.class] ? body[@"data"] : nil;
+        NSData *data = encoded ? [[NSData alloc] initWithBase64EncodedString:encoded options:0] : nil;
+        if (data.length == 0 || data.length > kMaxArchivoBytes || !HasPDFSignature(data)) {
+            replyHandler(nil, @"El archivo no es un PDF válido o pesa más de 50 MB.");
+            return;
+        }
+        if (![data writeToURL:fileURL options:NSDataWritingAtomic error:&error]) {
+            replyHandler(nil, error.localizedDescription ?: @"No se pudo guardar el archivo.");
+            return;
+        }
+        replyHandler(@{@"path": fileURL.path}, nil);
+        return;
+    }
+
+    BOOL exists = [NSFileManager.defaultManager fileExistsAtPath:fileURL.path];
+    if ([action isEqualToString:@"reveal"]) {
+        [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[exists ? fileURL : directory]];
+        replyHandler(@{@"ok": @YES}, nil);
+        return;
+    }
+    if ([action isEqualToString:@"open-external"]) {
+        if (!exists || ![[NSWorkspace sharedWorkspace] openURL:fileURL]) {
+            replyHandler(nil, @"No se pudo abrir el archivo.");
+            return;
+        }
+        replyHandler(@{@"ok": @YES}, nil);
+        return;
+    }
+    replyHandler(nil, @"Acción de archivos desconocida.");
+}
+
+@end
+
+/*
  * Puente para abrir un diagrama en una ventana aparte (solo lectura), por ejemplo
  * para llevarlo a un iPad usado como monitor complementario. Las ventanas
  * comparten el almacenamiento: la secundaria nunca escribe, solo lee.
@@ -378,6 +742,8 @@ static NSUInteger const kBackupsToKeep = 10;
 @property(nonatomic, strong) AppSchemeHandler *schemeHandler;
 @property(nonatomic, strong) BackupBridge *backupBridge;
 @property(nonatomic, strong) WindowBridge *windowBridge;
+@property(nonatomic, strong) FilesBridge *filesBridge;
+@property(nonatomic, strong) FilesBridge *viewerFilesBridge;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSWindow *> *viewerWindows;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, WebCoordinator *> *viewerCoordinators;
 @end
@@ -462,6 +828,17 @@ static NSUInteger const kBackupsToKeep = 10;
         initWithSource:@"window.__modeladorNativeWindows = true;"
          injectionTime:WKUserScriptInjectionTimeAtDocumentStart
       forMainFrameOnly:YES]];
+    self.filesBridge = [[FilesBridge alloc] init];
+    self.filesBridge.window = self.window;
+    [contentController addScriptMessageHandlerWithReply:self.filesBridge
+                                           contentWorld:WKContentWorld.pageWorld
+                                                   name:@"modeladorFiles"];
+    [contentController addUserScript:[[WKUserScript alloc]
+        initWithSource:@"window.__modeladorNativeFiles = true;"
+         injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+      forMainFrameOnly:YES]];
+    self.viewerFilesBridge = [[FilesBridge alloc] init];
+    self.viewerFilesBridge.readOnly = YES;
     configuration.userContentController = contentController;
     self.viewerWindows = [NSMutableDictionary dictionary];
     self.viewerCoordinators = [NSMutableDictionary dictionary];
@@ -492,11 +869,18 @@ static NSUInteger const kBackupsToKeep = 10;
     NSString *projectId = [message[@"projectId"] isKindOfClass:NSString.class] ? message[@"projectId"] : @"";
     NSString *artifactId = [message[@"artifactId"] isKindOfClass:NSString.class] ? message[@"artifactId"] : @"";
     NSString *title = [message[@"title"] isKindOfClass:NSString.class] ? message[@"title"] : kAppName;
+    if ([action isEqualToString:@"open"] && [message[@"kind"] isEqual:@"file"]) {
+        NSString *fileId = message[@"fileId"];
+        if (projectId.length > 0 && IsValidFileId(fileId)) {
+            [self openViewerForProject:projectId item:fileId title:title hashPrefix:@"#archivo="];
+        }
+        return;
+    }
     if (projectId.length == 0 || artifactId.length == 0) {
         return;
     }
     if ([action isEqualToString:@"open"]) {
-        [self openViewerForProject:projectId artifact:artifactId title:title];
+        [self openViewerForProject:projectId item:artifactId title:title hashPrefix:@"#viewer="];
     } else if ([action isEqualToString:@"focus-main"]) {
         [self focusMainWindowOnProject:projectId artifact:artifactId];
     }
@@ -524,8 +908,9 @@ static NSUInteger const kBackupsToKeep = 10;
     return NSMakeRect(main.origin.x + 60 + 28 * count, MAX(area.origin.y, main.origin.y - 40 - 28 * count), size.width, size.height);
 }
 
-- (void)openViewerForProject:(NSString *)projectId artifact:(NSString *)artifactId title:(NSString *)title {
-    NSString *key = [NSString stringWithFormat:@"%@/%@", projectId, artifactId];
+- (void)openViewerForProject:(NSString *)projectId item:(NSString *)itemId title:(NSString *)title hashPrefix:(NSString *)hashPrefix {
+    // Un diagrama y un PDF tienen ids distintos, así que comparten el mismo mapa de ventanas.
+    NSString *key = [NSString stringWithFormat:@"%@/%@", projectId, itemId];
     NSWindow *existing = self.viewerWindows[key];
     if (existing) {
         [existing makeKeyAndOrderFront:nil];
@@ -554,8 +939,12 @@ static NSUInteger const kBackupsToKeep = 10;
     [contentController addScriptMessageHandlerWithReply:self.windowBridge
                                            contentWorld:WKContentWorld.pageWorld
                                                    name:@"modeladorWindows"];
+    // Los PDF se leen por el esquema de la app; el puente de solo consulta sirve para «Abrir en Vista Previa».
+    [contentController addScriptMessageHandlerWithReply:self.viewerFilesBridge
+                                           contentWorld:WKContentWorld.pageWorld
+                                                   name:@"modeladorFiles"];
     [contentController addUserScript:[[WKUserScript alloc]
-        initWithSource:@"window.__modeladorNativeWindows = true;"
+        initWithSource:@"window.__modeladorNativeWindows = true; window.__modeladorNativeFiles = true;"
          injectionTime:WKUserScriptInjectionTimeAtDocumentStart
       forMainFrameOnly:YES]];
     configuration.userContentController = contentController;
@@ -568,9 +957,9 @@ static NSUInteger const kBackupsToKeep = 10;
     webView.UIDelegate = coordinator;
     viewerWindow.contentView = webView;
 
-    NSString *hash = [NSString stringWithFormat:@"#viewer=%@/%@",
+    NSString *hash = [NSString stringWithFormat:@"%@%@/%@", hashPrefix,
         [projectId stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet],
-        [artifactId stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet]];
+        [itemId stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet]];
     NSString *address = [[kAppScheme stringByAppendingString:@"://app/index.html"] stringByAppendingString:hash];
     [webView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:address]]];
 
