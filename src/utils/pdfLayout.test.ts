@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   capturePdfZoomAnchor,
   clampPdfZoom,
-  clampPinchFactor,
   pdfCanvasSize,
   restorePdfZoomAnchor,
   computePdfLayout,
+  wheelPdfZoom,
   nextPdfZoom,
   parsePdfView,
+  pinchPdfZoom,
   PDF_GAP,
   PDF_MARGIN,
   pdfPageAt,
@@ -194,10 +195,72 @@ describe('zoom anchor', () => {
     expect(restorePdfZoomAnchor(computePdfLayout([], 0, 1, 800), anchor)).toEqual({ left: 0, top: 0 });
   });
 
-  it('limits a pinch to the zoom range', () => {
-    expect(clampPinchFactor(1, 10)).toBe(4);
-    expect(clampPinchFactor(1, 0.01)).toBe(0.25);
-    expect(clampPinchFactor(2, 3)).toBe(2);
-    expect(clampPinchFactor(1, 1.3)).toBe(1.3);
+  it('stays inside what can be scrolled once it knows the window', () => {
+    const view = { width: 800, height: 600 };
+    // Two pages at 25 % are shorter than the window: nothing to scroll, whatever the anchor says.
+    const small = computePdfLayout([a4], 2, 0.25, 800);
+    const anchor = { page: 2, fraction: 0.9, fractionX: 0.9, viewX: 10, viewY: 10 };
+    expect(restorePdfZoomAnchor(small, anchor, view)).toEqual({ left: 0, top: 0 });
+    // Near the end of a long document the anchor would ask for more than the last screenful.
+    const long = computePdfLayout([a4], 10, 1, 800);
+    const last = { page: 10, fraction: 1, fractionX: 0.5, viewX: 400, viewY: 0 };
+    expect(restorePdfZoomAnchor(long, last, view).top).toBe(long.total - 600);
+  });
+});
+
+describe('pinch', () => {
+  it('follows the gesture scale from the zoom it started at, inside the limits', () => {
+    expect(pinchPdfZoom(1, 1.3)).toBeCloseTo(1.3, 10);
+    expect(pinchPdfZoom(2, 0.5)).toBe(1);
+    expect(pinchPdfZoom(1, 10)).toBe(4);
+    expect(pinchPdfZoom(1, 0.01)).toBe(0.25);
+    expect(pinchPdfZoom(1, 0)).toBe(0.25);
+  });
+
+  it('turns wheel steps into the same factor in and out', () => {
+    let zoom = 1;
+    for (let step = 0; step < 5; step += 1) zoom = wheelPdfZoom(zoom, -10);
+    for (let step = 0; step < 5; step += 1) zoom = wheelPdfZoom(zoom, 10);
+    expect(zoom).toBeCloseTo(1, 10);
+    // Lines count as 40 px.
+    expect(wheelPdfZoom(1, 1, 1)).toBeCloseTo(wheelPdfZoom(1, 40), 10);
+  });
+
+  it('starts zooming back in at once after hitting the minimum', () => {
+    let zoom = 1;
+    for (let step = 0; step < 50; step += 1) zoom = wheelPdfZoom(zoom, 20);
+    expect(zoom).toBe(0.25);
+    expect(wheelPdfZoom(zoom, -20)).toBeGreaterThan(0.25);
+  });
+
+  it('keeps the point under the fingers all the way down to the minimum and back, with no drift', () => {
+    const sizes = [a4];
+    const view = { width: 1000, height: 700 };
+    const start = computePdfLayout(sizes, 20, 2, view.width);
+    const startScroll = { left: 200, top: 9000 };
+    // The anchor is taken once, when the pinch begins, and reused on every frame.
+    const anchor = capturePdfZoomAnchor(start, startScroll.left, startScroll.top, 420, 310);
+    const zooms: number[] = [];
+    for (let zoom = 2; zoom > 0.25; zoom *= 0.9) zooms.push(zoom);
+    zooms.push(0.25);
+    for (const zoom of [...zooms, ...[...zooms].reverse()]) {
+      const layout = computePdfLayout(sizes, 20, zoom, view.width);
+      const scroll = restorePdfZoomAnchor(layout, anchor, view);
+      const page = anchor.page - 1;
+      const y = layout.offsets[page] + anchor.fraction * layout.heights[page] - scroll.top;
+      const x = (layout.contentWidth - layout.widths[page]) / 2 + anchor.fractionX * layout.widths[page] - scroll.left;
+      const maxTop = layout.total - view.height;
+      const maxLeft = layout.contentWidth - view.width;
+      // Unless the scroll had to stop at an edge, the point is exactly where the fingers are.
+      if (scroll.top > 0 && scroll.top < maxTop) expect(y).toBeCloseTo(310, 6);
+      if (scroll.left > 0 && scroll.left < maxLeft) expect(x).toBeCloseTo(420, 6);
+      expect(scroll.top).toBeGreaterThanOrEqual(0);
+      expect(scroll.top).toBeLessThanOrEqual(Math.max(0, maxTop));
+      expect(scroll.left).toBeLessThanOrEqual(Math.max(0, maxLeft));
+    }
+    // Back at the starting zoom, exactly the starting scroll.
+    const end = restorePdfZoomAnchor(computePdfLayout(sizes, 20, 2, view.width), anchor, view);
+    expect(end.left).toBeCloseTo(startScroll.left, 6);
+    expect(end.top).toBeCloseTo(startScroll.top, 6);
   });
 });

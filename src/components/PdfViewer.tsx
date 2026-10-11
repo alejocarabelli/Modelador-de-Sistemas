@@ -1,4 +1,5 @@
 import { ExternalLink, FileX } from 'lucide-react';
+import { flushSync } from 'react-dom';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { ProjectFile } from '../types/diagram';
 import { CanvasZoom } from './ui/CanvasZoom';
@@ -9,8 +10,6 @@ import { closePdfDocument, openPdfDocument, type PDFDocumentProxy, type RenderTa
 import { fileDisplayName } from '../utils/projectFiles';
 import {
   capturePdfZoomAnchor,
-  clampPdfZoom,
-  clampPinchFactor,
   computePdfLayout,
   nextPdfZoom,
   parsePdfView,
@@ -20,8 +19,10 @@ import {
   pdfCanvasSize,
   pdfRegionCovers,
   pdfRenderRegion,
+  pinchPdfZoom,
   restorePdfZoomAnchor,
   visiblePdfPages,
+  wheelPdfZoom,
   type PdfRect,
   type PdfRegion,
   type PdfView,
@@ -32,6 +33,8 @@ const viewKey = (fileId: string): string => `modelador.pdfView.${fileId}`;
 /** A zoom or a scroll settles this long before pages are drawn again; until then what is shown is stretched. */
 const ZOOM_SETTLE_MS = 140;
 const SCROLL_SETTLE_MS = 80;
+/** Ctrl + wheel this soon after a trackpad gesture is the same pinch reported twice. */
+const GESTURE_WHEEL_ECHO_MS = 300;
 /** Pages measured before the first one is shown; a longer document keeps measuring in the background. */
 const PAGES_MEASURED_FIRST = 300;
 
@@ -190,7 +193,6 @@ export function PdfViewer({ file, onPageCount, onOpenInWindow, onRemove, onRepla
   const [position, setPosition] = useState({ current: initialView.page, first: 0, last: 0 });
   const [pageDraft, setPageDraft] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const pagesRef = useRef<HTMLDivElement | null>(null);
   const openedRef = useRef<PDFDocumentProxy | null>(null);
   // Where the reader is (page + fraction of it), so a late measurement keeps the same spot.
   const anchorRef = useRef({ page: initialView.page, fraction: 0 });
@@ -312,7 +314,7 @@ export function PdfViewer({ file, onPageCount, onOpenInWindow, onRemove, onRepla
     const zoomAnchor = zoomAnchorRef.current;
     zoomAnchorRef.current = null;
     if (zoomAnchor !== null) {
-      const target = restorePdfZoomAnchor(layout, zoomAnchor);
+      const target = restorePdfZoomAnchor(layout, zoomAnchor, { width: element.clientWidth, height: element.clientHeight });
       element.scrollLeft = target.left;
       element.scrollTop = target.top;
     } else {
@@ -346,81 +348,88 @@ export function PdfViewer({ file, onPageCount, onOpenInWindow, onRemove, onRepla
     setZoom(next);
   };
 
-  // A pinch (Ctrl + wheel in most browsers, a gesture event in WebKit) scales what is on screen with a CSS
-  // transform, with no React work per event; the zoom is applied once, when the gesture settles.
+  // A pinch changes the real layout once per frame, around the point that was under the fingers when it began:
+  // what is on screen while pinching is exactly what stays when the fingers lift, and zooming out past the size of
+  // the window just stops scrolling instead of moving that point. WebKit reports a trackpad pinch as gesture events
+  // and can report the same pinch as Ctrl + wheel too; while a gesture is running the wheel is ignored, or the zoom
+  // would be applied twice.
   useEffect(() => {
     const element = scrollRef.current;
-    const pages = pagesRef.current;
-    if (element === null || pages === null) return undefined;
-    let gesture: { base: number; factor: number; originX: number; originY: number; viewX: number; viewY: number } | null = null;
-    let timer = 0;
-    const commit = (): void => {
-      if (gesture === null) return;
-      const { base, factor, viewX, viewY } = gesture;
-      gesture = null;
-      pages.style.transform = '';
-      pages.style.willChange = '';
-      zoomAnchorRef.current = capturePdfZoomAnchor(latest.current.layout, element.scrollLeft, element.scrollTop, viewX, viewY);
-      committedScale = clampPdfZoom(base * factor);
-      setZoom(committedScale);
+    if (element === null) return undefined;
+    type Pinch = { anchor: PdfZoomAnchor; zoom: number };
+    // The point that stays put and the zoom reached; captured once per pinch, so it never drifts.
+    let pinch: Pinch | null = null;
+    let pending: Pinch | null = null;
+    let frame = 0;
+    let wheelTimer = 0;
+    let gestureBase: number | null = null;
+    let gestureEndedAt = -Infinity;
+    const flush = (): void => {
+      cancelAnimationFrame(frame);
+      frame = 0;
+      const next = pending;
+      pending = null;
+      if (next === null || next.zoom === latest.current.zoom) return;
+      zoomAnchorRef.current = next.anchor;
+      // Rendered now, so the new scroll position is set before this frame is painted.
+      flushSync(() => setZoom(next.zoom));
     };
-    // What the last pause in the gesture settled on, until the layout catches up with it.
-    let committedScale: number | null = null;
-    /** `ratio` multiplies the current factor; with `absolute` it is the wanted scale, relative to the settled one. */
-    const pinchBy = (ratio: number, clientX: number, clientY: number, absolute = false): void => {
-      if (gesture === null) {
-        const bounds = element.getBoundingClientRect();
-        const viewX = clientX - bounds.left;
-        const viewY = clientY - bounds.top;
-        gesture = { base: committedScale ?? currentScale(), factor: 1, originX: element.scrollLeft + viewX, originY: element.scrollTop + viewY, viewX, viewY };
-        pages.style.transformOrigin = `${gesture.originX}px ${gesture.originY}px`;
-        pages.style.willChange = 'transform';
-      }
-      gesture.factor = clampPinchFactor(gesture.base, absolute ? ratio / gesture.base : gesture.factor * ratio);
-      pages.style.transform = `scale(${gesture.factor})`;
-      window.clearTimeout(timer);
-      timer = window.setTimeout(commit, ZOOM_SETTLE_MS);
+    const begin = (clientX: number, clientY: number): Pinch => {
+      flush();
+      const bounds = element.getBoundingClientRect();
+      const anchor = capturePdfZoomAnchor(latest.current.layout, element.scrollLeft, element.scrollTop, clientX - bounds.left, clientY - bounds.top);
+      pinch = { anchor, zoom: currentScale() };
+      return pinch;
+    };
+    const apply = (current: Pinch, zoom: number): void => {
+      current.zoom = zoom;
+      pending = { anchor: current.anchor, zoom };
+      if (frame === 0) frame = requestAnimationFrame(flush);
     };
     const wheel = (event: WheelEvent): void => {
       if (!event.ctrlKey) return;
       event.preventDefault();
-      if (gesture === null) committedScale = null;
-      const delta = event.deltaMode === 1 ? event.deltaY * 40 : event.deltaY;
-      pinchBy(Math.exp(-delta * 0.01), event.clientX, event.clientY);
+      if (gestureBase !== null || performance.now() - gestureEndedAt < GESTURE_WHEEL_ECHO_MS) return;
+      const current = pinch ?? begin(event.clientX, event.clientY);
+      apply(current, wheelPdfZoom(current.zoom, event.deltaY, event.deltaMode));
+      window.clearTimeout(wheelTimer);
+      wheelTimer = window.setTimeout(() => { pinch = null; }, ZOOM_SETTLE_MS);
     };
-    // WebKit reports the trackpad pinch as gesture events whose scale is relative to the start of the gesture.
-    // `scale` is cumulative from `gesturestart`, so the base is the zoom at the start, not at the last pause.
-    let gestureStart: { x: number; y: number; base: number } | null = null;
     const gestureBegin = (event: Event): void => {
       event.preventDefault();
-      commit();
-      committedScale = null;
+      window.clearTimeout(wheelTimer);
       const point = event as unknown as { clientX: number; clientY: number };
-      gestureStart = { x: point.clientX, y: point.clientY, base: currentScale() };
+      gestureBase = begin(point.clientX, point.clientY).zoom;
     };
     const gestureChange = (event: Event): void => {
       event.preventDefault();
-      const gestureEvent = event as unknown as { scale: number; clientX: number; clientY: number };
-      gestureStart ??= { x: gestureEvent.clientX, y: gestureEvent.clientY, base: currentScale() };
-      pinchBy(gestureStart.base * gestureEvent.scale, gestureStart.x, gestureStart.y, true);
+      const gesture = event as unknown as { scale: number; clientX: number; clientY: number };
+      let current = pinch;
+      if (gestureBase === null || current === null) {
+        current = begin(gesture.clientX, gesture.clientY);
+        gestureBase = current.zoom;
+      }
+      apply(current, pinchPdfZoom(gestureBase, gesture.scale));
+    };
+    const gestureEnd = (event: Event): void => {
+      event.preventDefault();
+      gestureBase = null;
+      pinch = null;
+      gestureEndedAt = performance.now();
     };
     element.addEventListener('wheel', wheel, { passive: false });
     element.addEventListener('gesturestart', gestureBegin);
     element.addEventListener('gesturechange', gestureChange);
-    const gestureEnd = (): void => {
-      commit();
-      gestureStart = null;
-    };
     element.addEventListener('gestureend', gestureEnd);
     return () => {
-      window.clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      window.clearTimeout(wheelTimer);
       element.removeEventListener('wheel', wheel);
       element.removeEventListener('gesturestart', gestureBegin);
       element.removeEventListener('gesturechange', gestureChange);
       element.removeEventListener('gestureend', gestureEnd);
-      pages.style.transform = '';
     };
-  }, [load.status, measured]);
+  }, [load.status]);
 
   const goToPage = (number: number): void => {
     const element = scrollRef.current;
@@ -502,7 +511,7 @@ export function PdfViewer({ file, onPageCount, onOpenInWindow, onRemove, onRepla
           scrollFrameRef.current = requestAnimationFrame(syncPosition);
         }}>
           {doc === null || !measured ? null : (
-            <div className="pdf-pages" ref={pagesRef} style={{ height: layout.total, width: layout.contentWidth }}>
+            <div className="pdf-pages" style={{ height: layout.total, width: layout.contentWidth }}>
               {layout.heights.map((height, index) => {
                 const number = index + 1;
                 return (

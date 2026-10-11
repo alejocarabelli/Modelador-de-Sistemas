@@ -215,16 +215,28 @@ export const capturePdfZoomAnchor = (layout: PdfLayout, scrollLeft: number, scro
   return { page, fraction, fractionX, viewX, viewY };
 };
 
-/** Where to scroll in the new layout so the anchored point is back under the same screen position. */
-export const restorePdfZoomAnchor = (layout: PdfLayout, anchor: PdfZoomAnchor): { left: number; top: number } => {
+/**
+ * Where to scroll in the new layout so the anchored point is back under the same screen position. With the size of
+ * the window, the result stays inside what can really be scrolled: a document smaller than the window sits at 0.
+ */
+export const restorePdfZoomAnchor = (
+  layout: PdfLayout,
+  anchor: PdfZoomAnchor,
+  view?: { width: number; height: number },
+): { left: number; top: number } => {
   const index = Math.min(anchor.page, layout.heights.length) - 1;
   if (index < 0) return { left: 0, top: 0 };
+  const maxLeft = view ? Math.max(0, layout.contentWidth - view.width) : Infinity;
+  const maxTop = view ? Math.max(0, layout.total - view.height) : Infinity;
   return {
-    left: Math.max(0, pageLeft(layout, index + 1) + anchor.fractionX * layout.widths[index] - anchor.viewX),
-    top: Math.max(0, layout.offsets[index] + anchor.fraction * layout.heights[index] - anchor.viewY),
+    left: Math.min(maxLeft, Math.max(0, pageLeft(layout, index + 1) + anchor.fractionX * layout.widths[index] - anchor.viewX)),
+    top: Math.min(maxTop, Math.max(0, layout.offsets[index] + anchor.fraction * layout.heights[index] - anchor.viewY)),
   };
 };
 
-/** The pinch factor that keeps `base * factor` inside the zoom limits. */
-export const clampPinchFactor = (base: number, factor: number): number =>
-  Math.min(PDF_ZOOM_MAX / base, Math.max(PDF_ZOOM_MIN / base, factor));
+/** The zoom of a trackpad pinch in WebKit: `scale` is relative to the zoom when the gesture started. */
+export const pinchPdfZoom = (base: number, scale: number): number => clampPdfZoom(base * scale);
+
+/** The zoom after one Ctrl + wheel step (a pinch in other browsers): the same distance in or out is the same factor. */
+export const wheelPdfZoom = (current: number, deltaY: number, deltaMode = 0): number =>
+  clampPdfZoom(current * Math.exp(-(deltaMode === 1 ? deltaY * 40 : deltaY) * 0.01));
