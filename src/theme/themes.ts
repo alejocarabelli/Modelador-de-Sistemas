@@ -2,7 +2,7 @@ export type ThemeAppearance = 'light' | 'dark';
 
 export type DiagramTheme = {
   id: DiagramThemeId;
-  /** Global palette: «Cuaderno» colors participants, groups and notes; «Grafito» keeps the document in ink. */
+  /** Global palette: «Cuaderno» colours each participant by its class; «Índigo y ámbar» uses two colours with one job each. */
   palette: PaletteId;
   name: string;
   description: string;
@@ -121,6 +121,15 @@ export type DiagramTheme = {
     feedbackBackground: string;
     projectTones: readonly [string, string, string, string, string, string, string];
   };
+  /** One identity for every sequence participant (boxes in one colour, activations in the other); without it, each class gets its own family. */
+  participants?: {
+    headerFill: string;
+    headerBorder: string;
+    lifelineStroke: string;
+    activationFill: string;
+    activationBorder: string;
+    glyphStroke: string;
+  };
   /** Semantic status colors: badges, review items, save state. */
   status: Record<StatusTone, { soft: string; softStrong: string; border: string; borderStrong: string; text: string }>;
 };
@@ -128,16 +137,16 @@ export type DiagramTheme = {
 export type StatusTone = 'danger' | 'warning' | 'success' | 'info' | 'violet';
 
 /** Two palettes, each in two appearances. */
-export type DiagramThemeId = 'academic-light' | 'academic-dark' | 'grafito-light' | 'grafito-dark';
+export type DiagramThemeId = 'academic-light' | 'academic-dark' | 'indigo-light' | 'indigo-dark';
 
-export type PaletteId = 'cuaderno' | 'grafito';
+export type PaletteId = 'cuaderno' | 'indigo';
 
 export const PALETTES: ReadonlyArray<{ id: PaletteId; name: string; description: string }> = [
-  { id: 'grafito', name: 'Grafito', description: 'Tinta y grises, un solo acento' },
+  { id: 'indigo', name: 'Índigo y ámbar', description: 'Dos colores, uno por papel' },
   { id: 'cuaderno', name: 'Cuaderno', description: 'Cada clase con su color' },
 ];
 
-export const isPaletteId = (value: unknown): value is PaletteId => value === 'cuaderno' || value === 'grafito';
+export const isPaletteId = (value: unknown): value is PaletteId => value === 'cuaderno' || value === 'indigo';
 
 /**
  * "Cuaderno técnico": tinta sobre papel con acento petróleo. El documento
@@ -353,82 +362,178 @@ export const academicDarkTheme: DiagramTheme = {
 };
 
 /**
- * "Grafito": el mismo cuaderno con el color reservado a lo que significa algo.
- * El documento queda en tinta y grises (los participantes no toman un color por
- * clase, los grupos y las notas se apagan hacia el gris); el petróleo sigue
- * siendo el único acento, para la selección y la acción principal.
+ * "Índigo y ámbar": dos colores, cada uno con un solo papel. El índigo es el
+ * acento de la interfaz y el color de todas las cajas de participantes; el
+ * ámbar, el de todas las activaciones, las notas y las condiciones de los
+ * fragmentos. Las entidades no cambian de color según su clase.
  */
-export const grafitoLightTheme: DiagramTheme = {
+export const indigoLightTheme: DiagramTheme = {
   ...academicLightTheme,
-  id: 'grafito-light',
-  palette: 'grafito',
-  name: 'Grafito',
-  description: 'Tinta y grises, acento petróleo',
+  id: 'indigo-light',
+  palette: 'indigo',
+  name: 'Índigo y ámbar',
+  description: 'Cajas índigo, activaciones ámbar',
+  classNode: { ...academicLightTheme.classNode, borderSelected: '#3B4D8C' },
   parametricNote: {
     ...academicLightTheme.parametricNote,
-    background: '#F5F5F2',
-    border: '#BABDB8',
-    text: '#3A3F41',
-    connectionLine: '#8C918F',
+    background: '#FCF4E3',
+    border: '#D7B97A',
+    text: '#4A3A1C',
+    connectionLine: '#A0712A',
   },
+  association: { ...academicLightTheme.association, strokeSelected: '#3B4D8C' },
+  handles: { ...academicLightTheme.handles, border: '#3B4D8C' },
   sequence: {
     ...academicLightTheme.sequence,
-    stroke: '#23292C',
-    participantBorder: '#2B3134',
-    text: '#23292C',
-    mutedText: '#61686B',
-    lifeline: '#A3A8AB',
-    fragmentStroke: '#8C9295',
-    fragmentFill: '#FAFAFB',
-    nestedFragmentFill: '#F3F4F5',
-    fragmentTabFill: '#F0F1F2',
-    guardFill: '#F0F1F2',
-    guardText: '#3D4548',
+    strokeSelected: '#3B4D8C',
+    lifeline: '#A3A8B8',
+    fragmentStroke: '#7F8BB3',
+    fragmentFill: '#FAFBFD',
+    nestedFragmentFill: '#F3F5FA',
+    fragmentTabFill: '#ECEFF8',
+    guardFill: '#FBF1DF',
+    guardText: '#7A5010',
+  },
+  participants: {
+    headerFill: '#ECEFF8',
+    headerBorder: '#4A5B96',
+    lifelineStroke: '#A3A8B8',
+    activationFill: '#F5E3C1',
+    activationBorder: '#A0712A',
+    glyphStroke: '#2E3538',
   },
   ui: {
     ...academicLightTheme.ui,
-    selectedBackground: '#E3E8E9',
-    selectedText: '#163F45',
-    projectTones: ['#5E6A73', '#56626A', '#66717A', '#4F5A61', '#6B757D', '#5A656D', '#626C74'],
+    accent: '#3B4D8C',
+    accentStrong: '#2D3C73',
+    accentSoft: '#E9ECF7',
+    accentSoftStrong: '#DCE1F2',
+    accentOutline: '#AEB8DD',
+    panelBackground: '#FCFCFE',
+    panelSubtleBackground: '#F7F8FB',
+    panelMutedBackground: '#F0F1F6',
+    panelStrongBackground: '#E4E7EF',
+    panelBorder: '#DFE2EA',
+    panelText: '#1B2030',
+    panelMutedText: '#5D6375',
+    toolbarBackground: '#FCFCFE',
+    buttonBorder: '#D3D7E2',
+    buttonText: '#262B3A',
+    buttonActiveBackground: '#3B4D8C',
+    inputText: '#1B2030',
+    inputBorder: '#D3D7E2',
+    panelBorderStrong: '#BEC3D1',
+    panelSecondaryText: '#3D4354',
+    panelFaintText: '#6A7080',
+    panelPlaceholderText: '#9599A8',
+    accentBorder: '#6F7DB5',
+    accentStrongFill: '#2F3F78',
+    appBackground: '#F0F1F5',
+    sidebarBackground: '#EBEDF2',
+    hoverBackground: '#E4E7EF',
+    selectedBackground: '#E1E6F5',
+    selectedText: '#2D3C73',
+    feedbackBackground: '#1B2030',
+    projectTones: ['#3B4D8C', '#A0712A', '#53649E', '#8A5A12', '#6A79AB', '#B5843A', '#46578F'],
   },
 };
 
-export const grafitoDarkTheme: DiagramTheme = {
+export const indigoDarkTheme: DiagramTheme = {
   ...academicDarkTheme,
-  id: 'grafito-dark',
-  palette: 'grafito',
-  name: 'Grafito de noche',
-  description: 'Tinta clara y grises, acento petróleo',
+  id: 'indigo-dark',
+  palette: 'indigo',
+  name: 'Índigo y ámbar de noche',
+  description: 'Cajas índigo, activaciones ámbar',
+  canvas: { background: '#12141C', gridColor: '#2A2E3A', gridColorStrong: '#3A3F4E', paperLine: '#191C26', paperLineStrong: '#232735' },
+  classNode: {
+    ...academicDarkTheme.classNode,
+    background: '#191C26',
+    border: '#9AA0B3',
+    borderSelected: '#9AA9E6',
+    text: '#DCDFEA',
+    mutedText: '#A2A7B8',
+    headerText: '#EEF0F7',
+    divider: '#30364A',
+  },
   parametricNote: {
     ...academicDarkTheme.parametricNote,
-    background: '#222526',
-    border: '#4A4F50',
-    text: '#D6D8D4',
-    connectionLine: '#7A807E',
+    background: '#2A2418',
+    border: '#6E5A2C',
+    text: '#EDE0C0',
+    connectionLine: '#D3A253',
   },
+  association: {
+    ...academicDarkTheme.association,
+    stroke: '#AEB3C4',
+    strokeSelected: '#9AA9E6',
+    multiplicityText: '#E3E6F0',
+    markerStroke: '#AEB3C4',
+  },
+  handles: { ...academicDarkTheme.handles, background: '#191C26', border: '#9AA9E6' },
   sequence: {
-    ...academicDarkTheme.sequence,
-    stroke: '#D9DCDB',
-    participantBorder: '#C9CDCB',
-    text: '#D9DCDB',
-    mutedText: '#9BA19F',
-    lifeline: '#5E6566',
-    fragmentStroke: '#6C7374',
-    fragmentFill: '#181B1C',
-    nestedFragmentFill: '#1E2223',
-    fragmentTabFill: '#242829',
-    guardFill: '#242829',
-    guardText: '#C3C8C6',
+    stroke: '#C9CDDA',
+    strokeSelected: '#9AA9E6',
+    participantFill: '#1B1E29',
+    participantBorder: '#8F99C6',
+    text: '#DCDFEA',
+    mutedText: '#A2A7B8',
+    canvasBackground: '#12141C',
+    canvasGrid: '#262A36',
+    lifeline: '#4E5568',
+    fragmentStroke: '#4E5880',
+    fragmentFill: '#151824',
+    nestedFragmentFill: '#1A1E2C',
+    fragmentTabFill: '#1E2440',
+    guardFill: '#2E2516',
+    guardText: '#E3B66A',
+  },
+  participants: {
+    headerFill: '#1E2440',
+    headerBorder: '#9AA9E6',
+    lifelineStroke: '#4E5568',
+    activationFill: '#3A2E19',
+    activationBorder: '#D3A253',
+    glyphStroke: '#C9CDDA',
   },
   ui: {
     ...academicDarkTheme.ui,
-    selectedBackground: '#262C2D',
-    selectedText: '#CFE6E7',
-    projectTones: ['#929EA8', '#8A969F', '#9AA5AE', '#848F98', '#A0AAB2', '#8E99A2', '#96A1AA'],
+    accent: '#9AA9E6',
+    accentStrong: '#C9D1F5',
+    accentSoft: '#1C2238',
+    accentSoftStrong: '#232A45',
+    accentOutline: '#3A4677',
+    panelBackground: '#181B26',
+    panelSubtleBackground: '#1C1F2B',
+    panelMutedBackground: '#212534',
+    panelStrongBackground: '#2A2F40',
+    panelBorder: '#2A2F40',
+    panelText: '#E0E3EE',
+    panelMutedText: '#9EA4B8',
+    toolbarBackground: '#181B26',
+    buttonBackground: '#1F2230',
+    buttonBorder: '#353B4F',
+    buttonText: '#D9DCE8',
+    buttonActiveBackground: '#4558A0',
+    inputBackground: '#13151E',
+    inputText: '#E0E3EE',
+    inputBorder: '#353B4F',
+    panelBorderStrong: '#454C63',
+    panelSecondaryText: '#C3C7D6',
+    panelFaintText: '#8A90A3',
+    panelPlaceholderText: '#6B7185',
+    accentBorder: '#6676B8',
+    accentStrongFill: '#3A4C92',
+    appBackground: '#10121A',
+    sidebarBackground: '#141720',
+    hoverBackground: '#1F2230',
+    selectedBackground: '#232A45',
+    selectedText: '#C9D1F5',
+    feedbackBackground: '#2A2F40',
+    projectTones: ['#9AA9E6', '#D3A253', '#8494D6', '#E3B66A', '#AEBAEB', '#C9974A', '#7F8FD0'],
   },
 };
 
-export const themes = [academicLightTheme, academicDarkTheme, grafitoLightTheme, grafitoDarkTheme] as const;
+export const themes = [academicLightTheme, academicDarkTheme, indigoLightTheme, indigoDarkTheme] as const;
 
 export const DEFAULT_THEME_ID: DiagramThemeId = 'academic-light';
 

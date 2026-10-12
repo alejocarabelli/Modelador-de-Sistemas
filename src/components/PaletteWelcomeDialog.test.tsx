@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import { PaletteWelcomeDialog } from './PaletteWelcomeDialog';
 
-const render = (palette: 'grafito' | 'cuaderno') => {
+const render = (palette: 'indigo' | 'cuaderno') => {
   const handler = vi.fn();
   return renderToString(
     <PaletteWelcomeDialog
@@ -18,10 +18,10 @@ const render = (palette: 'grafito' | 'cuaderno') => {
 
 describe('PaletteWelcomeDialog', () => {
   it('offers both palettes with a preview each and checks the current one', () => {
-    const html = render('grafito');
+    const html = render('indigo');
     expect(html).toContain('¿Cómo querés ver tus diagramas?');
     expect(html.match(/class="palette-preview"/g)).toHaveLength(2);
-    expect(html).toMatch(/checked="" value="grafito"/);
+    expect(html).toMatch(/checked="" value="indigo"/);
     expect(html).not.toMatch(/checked="" value="cuaderno"/);
   });
 

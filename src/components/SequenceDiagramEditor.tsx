@@ -4868,15 +4868,12 @@ export function SequenceDiagramEditor({
               <MenuSeparator />
               <MenuLabel>Diagrama</MenuLabel>
               <MenuItem checked={content.showActivations} onSelect={() => commit({ ...content, showActivations: !content.showActivations })}>Activaciones</MenuItem>
-              {/* «Grafito» never colours participants, so the switch only exists in «Cuaderno». */}
-              {theme.palette === 'cuaderno' ? (
-                <MenuItem
-                  checked={(content.participantColors ?? 'automatic') !== 'disabled'}
-                  onSelect={() => commit({ ...content, participantColors: (content.participantColors ?? 'automatic') === 'disabled' ? 'automatic' : 'disabled' })}
-                >
-                  Colores de participantes
-                </MenuItem>
-              ) : null}
+              <MenuItem
+                checked={(content.participantColors ?? 'automatic') !== 'disabled'}
+                onSelect={() => commit({ ...content, participantColors: (content.participantColors ?? 'automatic') === 'disabled' ? 'automatic' : 'disabled' })}
+              >
+                Colores de participantes
+              </MenuItem>
               <MenuItem
                 checked={content.spacing === 'compact'}
                 onSelect={() => commit(keepAnchoredNotesWithTimeline({ ...content, spacing: content.spacing === 'compact' ? undefined : 'compact' }))}

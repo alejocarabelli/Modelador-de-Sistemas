@@ -7,7 +7,7 @@ import { isMacPlatform } from '../utils/shortcutLabel';
 import { resolveParticipantVisualIdentity } from '../utils/sequenceParticipantColors';
 
 const PALETTE_BLURBS: Record<PaletteId, string> = {
-  grafito: 'Tinta y grises con un solo acento. Los participantes se reconocen por su nombre y su forma.',
+  indigo: 'Dos colores, uno por papel: las cajas de los participantes en índigo y las activaciones en ámbar.',
   cuaderno: 'Cada clase con su color, para seguirla de un diagrama a otro.',
 };
 

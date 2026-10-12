@@ -483,12 +483,13 @@
 }
 
 /* A group colour only tints the header; without one the header stays white.
-   «Grafito» keeps a third of the swatch's hue and lets the class ink carry the
-   rest, so groups read as tones of grey that are still told apart. */
+   «Índigo y ámbar» keeps a third of the swatch's hue and lets the class ink
+   carry the rest, so groups stay quiet next to its two colours but are still
+   told apart. */
 .app-shell { --class-group-tint: 16%; --class-group-chroma: 100%; }
 .app-shell[data-appearance='dark'] { --class-group-tint: 26%; }
 .app-shell[data-appearance='dark'] .exporting-png { --class-group-tint: 16%; }
-.app-shell[data-palette='grafito'] { --class-group-chroma: 32%; }
+.app-shell[data-palette='indigo'] { --class-group-chroma: 32%; }
 
 .app-shell .class-node[data-group-color],
 .app-shell .class-color-swatch {

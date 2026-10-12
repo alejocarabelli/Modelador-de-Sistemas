@@ -263,9 +263,14 @@ export const resolveParticipantVisualIdentity = (
   participant: Pick<SequenceParticipant, 'id' | 'kind' | 'name' | 'classifierName' | 'classifierNodeId'>,
   options?: ResolveParticipantVisualIdentityOptions,
 ): ParticipantVisualIdentity => {
-  // «Grafito» keeps every participant in ink: they read by name and shape, not by colour.
-  if (options?.enabled === false || options?.theme?.palette === 'grafito') {
+  if (options?.enabled === false) {
     return getNeutralVisualIdentity(participant, options?.theme);
+  }
+
+  // «Índigo y ámbar» gives every participant the same identity: the colour says box or activation, not which class.
+  const shared = options?.theme?.participants;
+  if (shared) {
+    return { identityKey: resolveParticipantIdentityKey(participant, options), familyId: options.theme?.palette ?? 'shared', ...shared };
   }
 
   const identityKey = resolveParticipantIdentityKey(participant, options);
@@ -295,13 +300,13 @@ export const resolveParticipantVisualIdentity = (
 
 /**
  * The colours a sequence note is drawn with. «Cuaderno» uses the four schemes
- * as they are; «Grafito» keeps their meaning (the border and the dot still
- * tell an alert from a precondition) but draws them on the theme's neutral
- * note paper, so a page of notes stays one quiet tone, in both appearances.
+ * as they are; «Índigo y ámbar» keeps their meaning (the border and the dot
+ * still tell an alert from a precondition) but draws them on the theme's amber
+ * note paper, so a page of notes stays one tone, in both appearances.
  */
 export const resolveSequenceNoteScheme = (theme: DiagramTheme | undefined, color: SequenceNoteColor | undefined): SequenceNoteColorScheme => {
   const scheme = SEQUENCE_NOTE_COLORS[color ?? 'yellow'];
-  if (theme?.palette !== 'grafito') return scheme;
+  if (theme === undefined || theme.palette === 'cuaderno') return scheme;
   const paper = theme.parametricNote;
   const border = mixHexColors(scheme.border, paper.border, 0.35);
   return {

@@ -13,8 +13,8 @@ import {
   getExportTheme,
   getTheme,
   getThemeById,
-  grafitoDarkTheme,
-  grafitoLightTheme,
+  indigoDarkTheme,
+  indigoLightTheme,
   themes,
 } from './themes';
 
@@ -61,7 +61,7 @@ describe('themes', () => {
     });
   });
 
-  it.each([academicDarkTheme, grafitoDarkTheme])('keeps body text readable on dark surfaces ($id)', ({ ui, status, sequence, classNode }) => {
+  it.each([academicDarkTheme, indigoDarkTheme])('keeps body text readable on dark surfaces ($id)', ({ ui, status, sequence, classNode }) => {
     expect(contrast(ui.panelText, ui.panelBackground)).toBeGreaterThan(7);
     expect(contrast(ui.panelMutedText, ui.panelBackground)).toBeGreaterThan(4.5);
     expect(contrast(ui.buttonActiveText, ui.buttonActiveBackground)).toBeGreaterThan(4.5);
@@ -71,23 +71,33 @@ describe('themes', () => {
   });
 
   it('pairs each palette with both appearances and exports on its light theme', () => {
-    expect(getTheme('grafito', 'light')).toBe(grafitoLightTheme);
-    expect(getTheme('grafito', 'dark')).toBe(grafitoDarkTheme);
+    expect(getTheme('indigo', 'light')).toBe(indigoLightTheme);
+    expect(getTheme('indigo', 'dark')).toBe(indigoDarkTheme);
     expect(getTheme('cuaderno', 'dark')).toBe(academicDarkTheme);
-    expect(getExportTheme('grafito')).toBe(grafitoLightTheme);
+    expect(getExportTheme('indigo')).toBe(indigoLightTheme);
     expect(getExportTheme('cuaderno')).toBe(academicLightTheme);
   });
 
-  it('keeps every Grafito participant in ink, whatever its class', () => {
+  it('gives every Índigo y ámbar participant indigo boxes and amber activations, whatever its class', () => {
     const identities = ['Tramite', 'Estado', 'GestorCambioEstado'].map((classifierName) =>
-      resolveParticipantVisualIdentity({ id: classifierName, kind: 'object', name: '', classifierName }, { theme: grafitoLightTheme }),
+      resolveParticipantVisualIdentity({ id: classifierName, kind: 'object', name: '', classifierName }, { theme: indigoLightTheme }),
     );
-    expect(new Set(identities.map((identity) => identity.familyId))).toEqual(new Set(['neutral']));
-    expect(identities[0].headerBorder).toBe(grafitoLightTheme.classNode.border);
+    identities.forEach((identity) => {
+      expect(identity.headerBorder).toBe(indigoLightTheme.participants?.headerBorder);
+      expect(identity.activationBorder).toBe(indigoLightTheme.participants?.activationBorder);
+    });
+    const disabled = resolveParticipantVisualIdentity({ id: 't', kind: 'object', name: '', classifierName: 'Tramite' }, { theme: indigoLightTheme, enabled: false });
+    expect(disabled.familyId).toBe('neutral');
   });
 
-  it('draws Grafito notes on the neutral note paper with readable text, in both appearances', () => {
-    [grafitoLightTheme, grafitoDarkTheme].forEach((theme) => {
+  it('keeps participant text readable on Índigo y ámbar boxes', () => {
+    [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
+      expect(contrast(theme.sequence.text, theme.participants!.headerFill), theme.id).toBeGreaterThan(7);
+    });
+  });
+
+  it('draws Índigo y ámbar notes on the amber note paper with readable text, in both appearances', () => {
+    [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
       (Object.keys(SEQUENCE_NOTE_COLORS) as Array<keyof typeof SEQUENCE_NOTE_COLORS>).forEach((color) => {
         const scheme = resolveSequenceNoteScheme(theme, color);
         expect(contrast(scheme.text, scheme.background), `${theme.id} ${color}`).toBeGreaterThan(7);

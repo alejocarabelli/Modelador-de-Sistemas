@@ -19,7 +19,7 @@ export const THEME_PREFERENCE_KEY = 'modelador.theme-preference';
 /** Global palette. Absent until the user picks one in the welcome dialog. */
 export const PALETTE_PREFERENCE_KEY = 'modelador.palette';
 /** What the app shows while nobody has picked yet: the welcome dialog previews it first. */
-export const DEFAULT_PALETTE: PaletteId = 'grafito';
+export const DEFAULT_PALETTE: PaletteId = 'indigo';
 
 export const readPalettePreference = (): PaletteId | null => {
   const stored = readUiPreference(PALETTE_PREFERENCE_KEY);
