@@ -5067,7 +5067,9 @@ export function SequenceDiagramEditor({
               </button>
             </div>
           ) : null}
-          {keyboardMode.stage !== 'off' && keyboardSlot && (keyboardSourceParticipant || keyboardMode.stage === 'navigate' || keyboardMode.stage === 'participant') ? (
+          {/* While a fragment's name or guard is being typed on the canvas the
+              composer steps aside, so it does not cover the inline editor. */}
+          {keyboardMode.stage !== 'off' && keyboardSlot && !inlineFragmentEditor && (keyboardSourceParticipant || keyboardMode.stage === 'navigate' || keyboardMode.stage === 'participant') ? (
             <SequenceKeyboardComposer
               state={keyboardMode}
               context={keyboardContext}
