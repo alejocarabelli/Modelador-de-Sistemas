@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 // Servidor MCP (stdio) para que Claude Desktop lea lo que estás haciendo en el
-// Modelador de Sistemas. Solo lectura y sin dependencias: habla JSON-RPC por
-// stdin/stdout, un mensaje por línea, como pide el transporte stdio de MCP.
+// Modelador de Sistemas y proponga cambios. Nunca escribe en los datos de la
+// app: las propuestas van a una carpeta aparte y la app pregunta antes de
+// aplicarlas. Sin dependencias: habla JSON-RPC por stdin/stdout, un mensaje
+// por línea, como pide el transporte stdio de MCP.
 
 import { createInterface } from 'node:readline';
 import { leerDatosEnVivo } from './enVivo.js';
+import { guiaPara } from './guia.js';
+import { escribirPropuesta, problemasDelContenido, propuestasPendientes, TIPOS_VALIDOS } from './propuestas.js';
 import { antiguedad, buscar, leerUltimoRespaldo, loQueEstaAbierto, proyectosDe } from './respaldos.js';
 import { nombreDeTipo, resumirApuntes, resumirArtefacto } from './resumen.js';
 
-const VERSION = '0.1.1';
+const VERSION = '0.2.0';
 
 const ARGUMENTOS_DE_ARTEFACTO = {
   type: 'object',
@@ -51,7 +55,47 @@ const HERRAMIENTAS = [
       'Devuelve el JSON completo de un artefacto, con posiciones y datos de dibujo. Es mucho más largo: usala solo si el resumen no alcanza para responder.',
     inputSchema: ARGUMENTOS_DE_ARTEFACTO,
   },
+  {
+    name: 'ver_guia_de_formato',
+    description:
+      'Devuelve la guía del formato JSON de un tipo de artefacto (campos, reglas y un ejemplo completo). Leela antes de usar proponer_cambio con un tipo que no conocés.',
+    inputSchema: {
+      type: 'object',
+      properties: { tipo: { type: 'string', enum: TIPOS_VALIDOS } },
+      required: ['tipo'],
+    },
+  },
+  {
+    name: 'ver_propuestas_pendientes',
+    description: 'Lista las propuestas de cambio que el estudiante todavía no aplicó ni descartó en la app.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ].map((herramienta) => ({ ...herramienta, annotations: { readOnlyHint: true, openWorldHint: false } }));
+
+HERRAMIENTAS.push({
+  name: 'proponer_cambio',
+  description: [
+    'Propone un cambio en un artefacto del Modelador de Sistemas, o un artefacto nuevo. No modifica nada por sí sola:',
+    'en la app le aparece al estudiante un aviso con tu descripción y los botones Aplicar y Descartar, y si aplica puede deshacerlo.',
+    'Usala solo cuando el estudiante te pida que cambies o armes algo; si solo pregunta, explicá sin proponer.',
+    'Para cambiar un artefacto: leelo con leer_artefacto_json, modificá lo necesario y mandá el "content" COMPLETO resultante,',
+    'conservando los id y las posiciones de todo lo que no cambia. Para uno nuevo: pasá nuevo_tipo y nuevo_nombre en vez de artefacto.',
+    'Si no conocés el formato del tipo, leé antes ver_guia_de_formato.',
+  ].join(' '),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      artefacto: { type: 'string', description: 'Nombre o ID del artefacto a cambiar. Omitilo si proponés uno nuevo.' },
+      proyecto: ARGUMENTOS_DE_ARTEFACTO.properties.proyecto,
+      contenido: { type: 'object', description: 'El "content" completo del artefacto tal como debe quedar.' },
+      descripcion: { type: 'string', description: 'Qué cambia y por qué, en una o dos oraciones, para el aviso de la app.' },
+      nuevo_tipo: { type: 'string', enum: TIPOS_VALIDOS, description: 'Solo para un artefacto nuevo.' },
+      nuevo_nombre: { type: 'string', description: 'Solo para un artefacto nuevo.' },
+    },
+    required: ['contenido', 'descripcion'],
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+});
 
 // Primero lo que la app está guardando ahora; si no se encuentra (otra versión
 // de macOS, la app nunca abierta), el último respaldo de Documentos.
@@ -93,6 +137,13 @@ function elegirArtefacto(proyecto, consulta) {
 }
 
 async function ejecutar(nombre, argumentos = {}) {
+  if (nombre === 'ver_guia_de_formato') return guiaPara(argumentos.tipo);
+  if (nombre === 'ver_propuestas_pendientes') {
+    const pendientes = await propuestasPendientes();
+    if (pendientes.length === 0) return 'No hay propuestas pendientes: el estudiante aplicó o descartó todas.';
+    return ['Propuestas que el estudiante todavía no resolvió:', ...pendientes.map((p) => `- ${p.nuevo ? 'Artefacto nuevo' : 'Cambio en'} "${p.nombre}": ${p.descripcion}`)].join('\n');
+  }
+
   const datos = await leerDatos();
   const { proyectos } = datos;
   if (proyectos.length === 0) return 'No hay proyectos en el Modelador de Sistemas.';
@@ -146,9 +197,53 @@ async function ejecutar(nombre, argumentos = {}) {
       if (!hay) lineas.push('', '(No escribió apuntes ni dudas en este proyecto.)');
       return lineas.join('\n');
     }
+    case 'proponer_cambio':
+      return proponerCambio(proyectos, argumentos);
     default:
       throw new Error(`Herramienta desconocida: ${nombre}`);
   }
+}
+
+async function proponerCambio(proyectos, argumentos) {
+  const proyecto = elegirProyecto(proyectos, argumentos.proyecto);
+  if (!proyecto) throw new Error('No hay un proyecto abierto al que proponerle el cambio.');
+  let contenido = argumentos.contenido;
+  if (typeof contenido === 'string') {
+    try {
+      contenido = JSON.parse(contenido);
+    } catch {
+      throw new Error('"contenido" no es un JSON válido.');
+    }
+  }
+  const descripcion = String(argumentos.descripcion ?? '').trim();
+  if (!descripcion) throw new Error('Falta "descripcion": el estudiante la lee antes de decidir.');
+
+  let propuesta;
+  if (argumentos.artefacto) {
+    const artefacto = elegirArtefacto(proyecto, argumentos.artefacto);
+    propuesta = {
+      projectId: proyecto.id,
+      artifactId: artefacto.id,
+      type: artefacto.type,
+      name: artefacto.name,
+      basedOnUpdatedAt: artefacto.updatedAt ?? null,
+    };
+  } else {
+    const nombre = String(argumentos.nuevo_nombre ?? '').trim();
+    if (!argumentos.nuevo_tipo || !nombre) throw new Error('Para un artefacto nuevo hacen falta "nuevo_tipo" y "nuevo_nombre"; para cambiar uno, "artefacto".');
+    propuesta = { projectId: proyecto.id, artifactId: null, type: argumentos.nuevo_tipo, name: nombre, basedOnUpdatedAt: null };
+  }
+
+  const problemas = problemasDelContenido(propuesta.type, contenido);
+  if (problemas.length > 0) {
+    throw new Error(`La app no aceptaría este contenido:\n- ${problemas.join('\n- ')}\nRevisá ver_guia_de_formato y volvé a intentar.`);
+  }
+
+  await escribirPropuesta({ ...propuesta, description: descripcion, content: contenido });
+  return [
+    `Listo: en el Modelador le aparece al estudiante un aviso para ${propuesta.artifactId ? `aplicar el cambio en "${propuesta.name}"` : `crear "${propuesta.name}"`} o descartarlo.`,
+    'Todavía no se aplicó: decíselo, y que si lo aplica lo puede deshacer.',
+  ].join(' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +264,7 @@ async function atender(pedido) {
           capabilities: { tools: {} },
           serverInfo: { name: 'modelador-de-sistemas', version: VERSION },
           instructions:
-            'Herramientas para ver el trabajo del estudiante en el Modelador de Sistemas (materia Diseño de Sistemas). Leen lo que la app tiene guardado en este Mac; no pueden modificar nada. Al hablar de un mensaje de una secuencia, nombralo por su texto, sus participantes y el fragmento donde está; no le pongas números, porque el estudiante no los usa.',
+            'Herramientas para ver el trabajo del estudiante en el Modelador de Sistemas (materia Diseño de Sistemas). Leen lo que la app tiene guardado en este Mac. Para cambiar algo, proponer_cambio deja una propuesta que el estudiante aplica o descarta en la app; nunca se modifica nada sin que él acepte. Al hablar de un mensaje de una secuencia, nombralo por su texto, sus participantes y el fragmento donde está; no le pongas números, porque el estudiante no los usa.',
         },
       });
     case 'ping':

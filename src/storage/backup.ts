@@ -11,7 +11,11 @@ declare global {
     __modeladorNativeBackup?: boolean;
     webkit?: { messageHandlers?: { modeladorBackup?: BackupBridge } };
     /** The Windows shell (src-tauri) puts its bridges here instead of faking `webkit`. */
-    __modeladorBridges?: { backup?: BackupBridge; windows?: { postMessage: (message: unknown) => Promise<unknown> } };
+    __modeladorBridges?: {
+      backup?: BackupBridge;
+      windows?: { postMessage: (message: unknown) => Promise<unknown> };
+      claude?: { postMessage: (message: unknown) => Promise<unknown> };
+    };
   }
 }
 

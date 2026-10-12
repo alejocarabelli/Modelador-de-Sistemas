@@ -1,8 +1,8 @@
 # Modelador de Sistemas para Claude (prueba)
 
-Extensión para Claude Desktop en Mac. Le permite a Claude ver, en modo solo lectura, lo que estás haciendo en el Modelador de Sistemas, para que puedas estudiar con él: "¿está bien esta secuencia según el flujo?", "¿me falta alguna relación en el diagrama de clases?".
+Extensión para Claude Desktop en Mac. Le permite a Claude ver lo que estás haciendo en el Modelador de Sistemas, para que puedas estudiar con él ("¿está bien esta secuencia según el flujo?", "¿me falta alguna relación en el diagrama de clases?"), y proponerte cambios que vos aplicás o descartás en la app.
 
-No cambia nada en la app. Lee, en modo solo lectura, lo que la app guarda mientras trabajás (cada cambio queda guardado al segundo en `~/Library/WebKit/com.alejocarabelli.disenosistemas.v2/`) y se lo pasa a Claude resumido en texto. Si no lo encuentra, usa el último respaldo automático de **Documentos › Modelador de Sistemas › Respaldos**. No modifica nada y no usa internet.
+Claude nunca escribe en tus datos. Lee, en modo solo lectura, lo que la app guarda mientras trabajás (cada cambio queda guardado al segundo en `~/Library/WebKit/com.alejocarabelli.disenosistemas.v2/`) y se lo pasa a Claude resumido en texto. Si no lo encuentra, usa el último respaldo automático de **Documentos › Modelador de Sistemas › Respaldos**. No modifica nada y no usa internet.
 
 ## Instalar
 
@@ -27,6 +27,13 @@ Claude tiene estas herramientas:
 | `leer_artefacto` | Otro artefacto del proyecto, resumido. |
 | `leer_mis_dudas` | Las dudas y apuntes de todo el proyecto. |
 | `leer_artefacto_json` | El JSON completo; solo si el resumen no alcanza. |
+| `ver_guia_de_formato` | La guía del formato JSON de un tipo de artefacto. |
+| `proponer_cambio` | Deja una propuesta de cambio (o un artefacto nuevo) para que la apliques en la app. |
+| `ver_propuestas_pendientes` | Las propuestas que todavía no aplicaste ni descartaste. |
+
+### Cambios propuestos por Claude
+
+Pedile, por ejemplo, "corregí los retornos de la secuencia". Claude deja la propuesta en **Documentos › Modelador de Sistemas › Claude › Propuestas** y la app (desde la versión que trae el puente de propuestas) te muestra un aviso debajo de las pestañas con lo que cambia y los botones **Ver**, **Descartar** y **Aplicar**. Aplicar pasa por el mismo historial que un cambio hecho a mano: se deshace con ⌘Z. Si cambiaste el artefacto después de que Claude lo leyó, el aviso te lo dice antes de aplicar.
 
 ### De dónde lee
 

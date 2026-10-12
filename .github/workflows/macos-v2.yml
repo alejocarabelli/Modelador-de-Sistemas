@@ -6,7 +6,8 @@ name: macOS 2.0
 #   etiqueta lleva sufijo, como v2.0.0-rc.1).
 on:
   push:
-    branches: [main]
+    # claude/**: compilaciones de prueba de las ramas de propuestas (se quita antes de unir a main).
+    branches: [main, 'claude/**']
     tags: ['v2.*']
 
 permissions:

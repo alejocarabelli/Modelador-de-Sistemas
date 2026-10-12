@@ -3,30 +3,72 @@
   "manifest_version": "0.3",
   "name": "modelador-de-sistemas",
   "display_name": "Modelador de Sistemas",
-  "version": "0.1.1",
-  "description": "Deja que Claude vea, en modo solo lectura, los diagramas que estás haciendo en el Modelador de Sistemas.",
-  "long_description": "Lee lo que la app tiene guardado en el Mac (y, si no lo encuentra, el último respaldo automático) y se lo pasa a Claude resumido en texto: casos de uso, flujos de sucesos, secuencias y clases, con tus apuntes y dudas. No modifica nada y no usa internet.",
-  "author": { "name": "Modelador de Sistemas" },
-  "repository": { "type": "git", "url": "https://github.com/alejocarabelli/Modelador-de-Sistemas" },
+  "version": "0.2.0",
+  "description": "Deja que Claude vea los diagramas que estás haciendo en el Modelador de Sistemas y te proponga cambios, que vos aplicás o descartás en la app.",
+  "long_description": "Lee lo que la app tiene guardado en el Mac (y, si no lo encuentra, el último respaldo automático) y se lo pasa a Claude resumido en texto: casos de uso, flujos de sucesos, secuencias y clases, con tus apuntes y dudas. Claude nunca modifica tus datos: cuando le pedís un cambio, deja una propuesta y la app te pregunta si aplicarla (y se puede deshacer). No usa internet.",
+  "author": {
+    "name": "Modelador de Sistemas"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/alejocarabelli/Modelador-de-Sistemas"
+  },
   "server": {
     "type": "node",
     "entry_point": "server/index.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/server/index.js"]
+      "args": [
+        "${__dirname}/server/index.js"
+      ]
     }
   },
   "tools": [
-    { "name": "ver_lo_que_estoy_haciendo", "description": "Muestra el artefacto abierto ahora, resumido en texto, con sus apuntes y dudas." },
-    { "name": "listar_proyectos", "description": "Lista los proyectos y sus artefactos." },
-    { "name": "leer_artefacto", "description": "Lee otro artefacto del proyecto, resumido en texto." },
-    { "name": "leer_mis_dudas", "description": "Junta las dudas y apuntes del proyecto." },
-    { "name": "leer_artefacto_json", "description": "Devuelve el JSON completo de un artefacto." }
+    {
+      "name": "ver_lo_que_estoy_haciendo",
+      "description": "Muestra el artefacto abierto ahora, resumido en texto, con sus apuntes y dudas."
+    },
+    {
+      "name": "listar_proyectos",
+      "description": "Lista los proyectos y sus artefactos."
+    },
+    {
+      "name": "leer_artefacto",
+      "description": "Lee otro artefacto del proyecto, resumido en texto."
+    },
+    {
+      "name": "leer_mis_dudas",
+      "description": "Junta las dudas y apuntes del proyecto."
+    },
+    {
+      "name": "leer_artefacto_json",
+      "description": "Devuelve el JSON completo de un artefacto."
+    },
+    {
+      "name": "ver_guia_de_formato",
+      "description": "La guía del formato JSON de un tipo de artefacto."
+    },
+    {
+      "name": "ver_propuestas_pendientes",
+      "description": "Las propuestas que todavía no aplicaste ni descartaste."
+    },
+    {
+      "name": "proponer_cambio",
+      "description": "Deja una propuesta de cambio que aplicás o descartás en la app."
+    }
   ],
-  "keywords": ["uml", "diseño de sistemas", "estudio"],
+  "keywords": [
+    "uml",
+    "diseño de sistemas",
+    "estudio"
+  ],
   "license": "UNLICENSED",
   "compatibility": {
-    "platforms": ["darwin"],
-    "runtimes": { "node": ">=18.0.0" }
+    "platforms": [
+      "darwin"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
   }
 }

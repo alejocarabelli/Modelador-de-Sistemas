@@ -9,6 +9,9 @@ import { ArtifactImportDialog } from './components/ArtifactImportDialog';
 import { ArtifactMoveDialog } from './components/ArtifactMoveDialog';
 import { ProjectHome } from './components/ProjectHome';
 import { ProjectBackupWarning } from './components/ProjectBackupWarning';
+import { ClaudeProposalNotice } from './components/ClaudeProposalNotice';
+import { useClaudeProposals } from './hooks/useClaudeProposals';
+import { resolveProposalTarget, type ClaudeProposal } from './storage/claudeProposals';
 import { ArtifactErrorBoundary } from './components/ArtifactErrorBoundary';
 import { ProjectSidebar } from './components/ProjectSidebar';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
@@ -194,6 +197,7 @@ function App() {
     updateProjectArtifactContent,
   } = useProjects();
   const { tabsByProject, setOpenArtifactIds } = useArtifactTabs(projects, activeProjectId);
+  const { proposals: claudeProposals, resolve: resolveClaudeProposal } = useClaudeProposals();
 
   const getProjectTabState = (projectId: string): ArtifactTabState => ({
     openArtifactIds: tabsByProject[projectId] ?? [],
@@ -361,13 +365,42 @@ function App() {
     setActiveArtifactId(projectId, artifactId);
   };
 
+  // Opens the artifact in its tab, adding the tab when it was closed.
+  const openArtifact = (projectId: string, artifactId: string): void => {
+    const tabState = getProjectTabState(projectId);
+    if (!tabState.openArtifactIds.includes(artifactId)) setOpenArtifactIds(projectId, [...tabState.openArtifactIds, artifactId]);
+    handleSelectArtifact(projectId, artifactId);
+  };
+
+  // A proposal from Claude replaces the artifact through the same history as a
+  // hand edit, so Cmd+Z brings the previous version back.
+  const handleApplyClaudeProposal = (proposal: ClaudeProposal): void => {
+    const target = resolveProposalTarget(proposal, projects);
+    if (target.kind === 'invalid') return;
+    if (target.kind === 'new') {
+      importArtifact(target.project.id, proposal.artifact);
+      void resolveClaudeProposal(proposal.file);
+      return;
+    }
+    const historyKey = `${target.project.id}:${target.artifact.id}`;
+    const previousContent = cloneArtifactContent(target.artifact);
+    const nextContent = cloneContentForType(target.artifact.type, proposal.artifact.content);
+    const projectHistory = historyByArtifactIdRef.current[historyKey] ?? { past: [], future: [] };
+    const nextHistory = changeHistory(projectHistory, previousContent, true, MAX_HISTORY_ENTRIES);
+    updateHistory((currentHistory) => ({ ...currentHistory, [historyKey]: nextHistory }));
+    historyBurstRef.current = null;
+    updateProjectArtifactContent(target.project.id, target.artifact.id, nextContent, {
+      alreadyNormalized: true, historySnapshots: [...nextHistory.past, ...nextHistory.future],
+    });
+    openArtifact(target.project.id, target.artifact.id);
+    void resolveClaudeProposal(proposal.file);
+  };
+
   // A read-only window asks to edit its diagram here: the main window is the only one that saves.
   const selectArtifactFromWindow = useEffectEvent((projectId: string, artifactId: string): void => {
     const project = projects.find((candidate) => candidate.id === projectId);
     if (!project?.artifacts.some((artifact) => artifact.id === artifactId)) return;
-    const tabState = getProjectTabState(projectId);
-    if (!tabState.openArtifactIds.includes(artifactId)) setOpenArtifactIds(projectId, [...tabState.openArtifactIds, artifactId]);
-    handleSelectArtifact(projectId, artifactId);
+    openArtifact(projectId, artifactId);
   });
   useEffect(() => {
     const onSelect = (event: Event): void => {
@@ -874,7 +907,7 @@ function App() {
           onOpenProject={setActiveProjectId}
         />
       ) : (
-        <div className={`artifact-editor-column ${backup.error !== null ? 'has-backup-error' : ''}`}>
+        <div className={`artifact-editor-column ${backup.error !== null || claudeProposals.length > 0 ? 'has-notices' : ''}`}>
           <ArtifactTabs
             key={activeProject.id}
             projectName={activeProject.name}
@@ -892,12 +925,25 @@ function App() {
               `${activeProject.artifacts.find((candidate) => candidate.id === artifactId)?.name ?? 'Diagrama'} · vista`,
             )}
           />
-          <ProjectBackupWarning
-            error={backup.error}
-            saveStatus={saveStatus}
-            onRetry={() => void runBackupNow()}
-            onExport={() => handleExportProject(activeProject.id)}
-          />
+          {(backup.error !== null || claudeProposals.length > 0) && (
+            <div className="artifact-notices">
+              <ProjectBackupWarning
+                error={backup.error}
+                saveStatus={saveStatus}
+                onRetry={() => void runBackupNow()}
+                onExport={() => handleExportProject(activeProject.id)}
+              />
+              <ClaudeProposalNotice
+                proposals={claudeProposals}
+                projects={projects}
+                activeProjectId={activeProject.id}
+                activeArtifactId={activeArtifact.id}
+                onView={openArtifact}
+                onApply={handleApplyClaudeProposal}
+                onDiscard={(file) => void resolveClaudeProposal(file)}
+              />
+            </div>
+          )}
           <NotebookContext.Provider value={notebookContext}>
             <div
               className={`artifact-workspace ${isNotebookOpen && isNotebookOverlay ? 'is-notebook-overlay' : ''}`}
