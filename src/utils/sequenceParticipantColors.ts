@@ -1,4 +1,4 @@
-import type { SequenceParticipant } from '../types/diagram';
+import { SEQUENCE_NOTE_COLORS, type SequenceNoteColor, type SequenceNoteColorScheme, type SequenceParticipant } from '../types/diagram';
 import type { DiagramTheme } from '../theme/themes';
 
 export type ParticipantVisualFamily = {
@@ -263,7 +263,8 @@ export const resolveParticipantVisualIdentity = (
   participant: Pick<SequenceParticipant, 'id' | 'kind' | 'name' | 'classifierName' | 'classifierNodeId'>,
   options?: ResolveParticipantVisualIdentityOptions,
 ): ParticipantVisualIdentity => {
-  if (options?.enabled === false) {
+  // «Grafito» keeps every participant in ink: they read by name and shape, not by colour.
+  if (options?.enabled === false || options?.theme?.palette === 'grafito') {
     return getNeutralVisualIdentity(participant, options?.theme);
   }
 
@@ -289,5 +290,27 @@ export const resolveParticipantVisualIdentity = (
     activationFill: family.activationFill,
     activationBorder: family.activationBorder,
     glyphStroke: family.glyphStroke,
+  };
+};
+
+/**
+ * The colours a sequence note is drawn with. «Cuaderno» uses the four schemes
+ * as they are; «Grafito» keeps their meaning (the border and the dot still
+ * tell an alert from a precondition) but draws them on the theme's neutral
+ * note paper, so a page of notes stays one quiet tone, in both appearances.
+ */
+export const resolveSequenceNoteScheme = (theme: DiagramTheme | undefined, color: SequenceNoteColor | undefined): SequenceNoteColorScheme => {
+  const scheme = SEQUENCE_NOTE_COLORS[color ?? 'yellow'];
+  if (theme?.palette !== 'grafito') return scheme;
+  const paper = theme.parametricNote;
+  const border = mixHexColors(scheme.border, paper.border, 0.35);
+  return {
+    ...scheme,
+    background: mixHexColors(scheme.border, paper.background, 0.1),
+    border,
+    fold: border,
+    text: paper.text,
+    connectionLine: mixHexColors(scheme.connectionLine, paper.connectionLine, 0.35),
+    dot: mixHexColors(scheme.dot, paper.border, 0.6),
   };
 };

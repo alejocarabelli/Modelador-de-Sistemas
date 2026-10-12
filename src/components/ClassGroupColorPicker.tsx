@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { Check, Slash } from 'lucide-react';
 import { CLASS_GROUP_COLORS, type ClassGroupColor } from '../constants/classGroupColors';
 
@@ -21,8 +22,9 @@ export function ClassGroupColorPicker({ value, count, onChange }: Props) {
         </button>
         {CLASS_GROUP_COLORS.map(color => (
           <button className="class-color-swatch" key={color.id} type="button" aria-label={`Color ${color.label.toLowerCase()}`}
-            title={color.label} aria-pressed={value === color.id} onClick={() => onChange(color.id)}>
-            <span style={{ backgroundColor: color.swatch }}>
+            title={color.label} aria-pressed={value === color.id} onClick={() => onChange(color.id)}
+            style={{ '--group-swatch': color.swatch } as CSSProperties}>
+            <span data-swatch="">
               {value === color.id ? <Check size={13} strokeWidth={2.5} aria-hidden="true" /> : null}
             </span>
           </button>

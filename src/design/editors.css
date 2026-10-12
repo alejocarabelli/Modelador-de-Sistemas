@@ -482,14 +482,24 @@
   text-align: center;
 }
 
-/* A group colour only tints the header; without one the header stays white. */
-.app-shell { --class-group-tint: 16%; }
-.app-shell[data-theme='academic-dark'] { --class-group-tint: 26%; }
-.app-shell[data-theme='academic-dark'] .exporting-png { --class-group-tint: 16%; }
+/* A group colour only tints the header; without one the header stays white.
+   «Grafito» keeps a third of the swatch's hue and lets the class ink carry the
+   rest, so groups read as tones of grey that are still told apart. */
+.app-shell { --class-group-tint: 16%; --class-group-chroma: 100%; }
+.app-shell[data-appearance='dark'] { --class-group-tint: 26%; }
+.app-shell[data-appearance='dark'] .exporting-png { --class-group-tint: 16%; }
+.app-shell[data-palette='grafito'] { --class-group-chroma: 32%; }
+
+.app-shell .class-node[data-group-color],
+.app-shell .class-color-swatch {
+  --group-swatch-shown: color-mix(in srgb, var(--group-swatch) var(--class-group-chroma), var(--class-border));
+}
 
 .app-shell .class-node[data-group-color] {
-  --class-header-background: color-mix(in srgb, var(--group-swatch) var(--class-group-tint), var(--class-background));
+  --class-header-background: color-mix(in srgb, var(--group-swatch-shown) var(--class-group-tint), var(--class-background));
 }
+
+.app-shell .class-color-swatch > span[data-swatch] { background: var(--group-swatch-shown); }
 
 .app-shell .class-node :is(.class-node-attributes, .class-node-methods) {
   font-family: var(--font-ui);

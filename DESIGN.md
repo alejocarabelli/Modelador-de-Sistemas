@@ -35,6 +35,16 @@ Ink on paper with one petrol accent.
   another class of the diagram.
 - **Dark mode is "Pizarra"**: light ink on warm graphite, the same accent lifted
   to `#63B7BC`. Not an inverted grey.
+- **Two palettes, picked once.** «Cuaderno» gives each sequence participant a
+  colour family by class, and tints groups and notes. «Grafito» keeps the
+  document in ink: participants are neutral (they read by name and shape),
+  groups keep a third of their hue over the class ink, notes keep a trace of
+  their colour on one neutral paper, and project tones are slate steps. Petrol
+  stays the only accent in both. The palette is global (`modelador.palette`),
+  chosen in `PaletteWelcomeDialog` on first launch (Grafito preselected, the
+  choice previews live on the app) and changed later under Apariencia › Paleta.
+  The shell carries `data-palette` and `data-appearance`; stylesheets select on
+  those, never on a theme id.
 
 ## Type
 
@@ -79,7 +89,7 @@ do not define, and checks text contrast in both themes).
 | Status | `--status-{danger,warning,success,info,violet}-{soft,soft-strong,border,border-strong,text}` |
 | Document | `--class-*`, `--association-*`, `--note-*`, and `theme.sequence.*` for the SVG sequence canvas |
 
-Exports always use the light theme (`EXPORT_THEME`), whatever the screen shows.
+Exports always use the light theme of the current palette (`getExportTheme`), whatever the screen shows.
 
 ## Space, shape, elevation, motion
 

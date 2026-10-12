@@ -3303,7 +3303,7 @@ button.sequence-keyboard-key:hover { border-color: var(--accent); }
 
 /* In light mode the accent is dark enough to carry white text; the dark
    theme's accent is a light text tint, so it keeps the regular fill. */
-.app-shell[data-ui-version='refined'][data-theme='academic-light'] .sequence-editor-shell {
+.app-shell[data-ui-version='refined'][data-appearance='light'] .sequence-editor-shell {
   --button-active-background: var(--accent);
   --button-active-text: #ffffff;
 }

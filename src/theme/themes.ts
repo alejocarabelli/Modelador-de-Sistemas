@@ -2,6 +2,8 @@ export type ThemeAppearance = 'light' | 'dark';
 
 export type DiagramTheme = {
   id: DiagramThemeId;
+  /** Global palette: «Cuaderno» colors participants, groups and notes; «Grafito» keeps the document in ink. */
+  palette: PaletteId;
   name: string;
   description: string;
   appearance: ThemeAppearance;
@@ -125,8 +127,17 @@ export type DiagramTheme = {
 
 export type StatusTone = 'danger' | 'warning' | 'success' | 'info' | 'violet';
 
-/** One visual language in two appearances. */
-export type DiagramThemeId = 'academic-light' | 'academic-dark';
+/** Two palettes, each in two appearances. */
+export type DiagramThemeId = 'academic-light' | 'academic-dark' | 'grafito-light' | 'grafito-dark';
+
+export type PaletteId = 'cuaderno' | 'grafito';
+
+export const PALETTES: ReadonlyArray<{ id: PaletteId; name: string; description: string }> = [
+  { id: 'grafito', name: 'Grafito', description: 'Tinta y grises, un solo acento' },
+  { id: 'cuaderno', name: 'Cuaderno', description: 'Cada clase con su color' },
+];
+
+export const isPaletteId = (value: unknown): value is PaletteId => value === 'cuaderno' || value === 'grafito';
 
 /**
  * "Cuaderno técnico": tinta sobre papel con acento petróleo. El documento
@@ -135,6 +146,7 @@ export type DiagramThemeId = 'academic-light' | 'academic-dark';
  */
 export const academicLightTheme: DiagramTheme = {
   id: 'academic-light',
+  palette: 'cuaderno',
   name: 'Cuaderno',
   description: 'Tinta sobre papel, acento petróleo',
   appearance: 'light',
@@ -340,12 +352,93 @@ export const academicDarkTheme: DiagramTheme = {
   },
 };
 
-export const themes = [academicLightTheme, academicDarkTheme] as const;
+/**
+ * "Grafito": el mismo cuaderno con el color reservado a lo que significa algo.
+ * El documento queda en tinta y grises (los participantes no toman un color por
+ * clase, los grupos y las notas se apagan hacia el gris); el petróleo sigue
+ * siendo el único acento, para la selección y la acción principal.
+ */
+export const grafitoLightTheme: DiagramTheme = {
+  ...academicLightTheme,
+  id: 'grafito-light',
+  palette: 'grafito',
+  name: 'Grafito',
+  description: 'Tinta y grises, acento petróleo',
+  parametricNote: {
+    ...academicLightTheme.parametricNote,
+    background: '#F5F5F2',
+    border: '#BABDB8',
+    text: '#3A3F41',
+    connectionLine: '#8C918F',
+  },
+  sequence: {
+    ...academicLightTheme.sequence,
+    stroke: '#23292C',
+    participantBorder: '#2B3134',
+    text: '#23292C',
+    mutedText: '#61686B',
+    lifeline: '#A3A8AB',
+    fragmentStroke: '#8C9295',
+    fragmentFill: '#FAFAFB',
+    nestedFragmentFill: '#F3F4F5',
+    fragmentTabFill: '#F0F1F2',
+    guardFill: '#F0F1F2',
+    guardText: '#3D4548',
+  },
+  ui: {
+    ...academicLightTheme.ui,
+    selectedBackground: '#E3E8E9',
+    selectedText: '#163F45',
+    projectTones: ['#5E6A73', '#56626A', '#66717A', '#4F5A61', '#6B757D', '#5A656D', '#626C74'],
+  },
+};
+
+export const grafitoDarkTheme: DiagramTheme = {
+  ...academicDarkTheme,
+  id: 'grafito-dark',
+  palette: 'grafito',
+  name: 'Grafito de noche',
+  description: 'Tinta clara y grises, acento petróleo',
+  parametricNote: {
+    ...academicDarkTheme.parametricNote,
+    background: '#222526',
+    border: '#4A4F50',
+    text: '#D6D8D4',
+    connectionLine: '#7A807E',
+  },
+  sequence: {
+    ...academicDarkTheme.sequence,
+    stroke: '#D9DCDB',
+    participantBorder: '#C9CDCB',
+    text: '#D9DCDB',
+    mutedText: '#9BA19F',
+    lifeline: '#5E6566',
+    fragmentStroke: '#6C7374',
+    fragmentFill: '#181B1C',
+    nestedFragmentFill: '#1E2223',
+    fragmentTabFill: '#242829',
+    guardFill: '#242829',
+    guardText: '#C3C8C6',
+  },
+  ui: {
+    ...academicDarkTheme.ui,
+    selectedBackground: '#262C2D',
+    selectedText: '#CFE6E7',
+    projectTones: ['#929EA8', '#8A969F', '#9AA5AE', '#848F98', '#A0AAB2', '#8E99A2', '#96A1AA'],
+  },
+};
+
+export const themes = [academicLightTheme, academicDarkTheme, grafitoLightTheme, grafitoDarkTheme] as const;
 
 export const DEFAULT_THEME_ID: DiagramThemeId = 'academic-light';
 
-/** Exports are documents: they always render on the light theme. */
+/** Exports are documents: they always render on a light theme; `getExportTheme` picks the palette's. */
 export const EXPORT_THEME = academicLightTheme;
 
 export const getThemeById = (themeId: string | null): DiagramTheme =>
   themes.find((theme) => theme.id === themeId) ?? academicLightTheme;
+
+export const getTheme = (palette: PaletteId, appearance: ThemeAppearance): DiagramTheme =>
+  themes.find((theme) => theme.palette === palette && theme.appearance === appearance) ?? academicLightTheme;
+
+export const getExportTheme = (palette: PaletteId): DiagramTheme => getTheme(palette, 'light');

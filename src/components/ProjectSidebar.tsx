@@ -21,6 +21,7 @@ import {
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import type { DesignArtifact, DiagramProject } from '../types/diagram';
 import type { ThemePreference } from '../hooks/useTheme';
+import type { PaletteId } from '../theme/themes';
 import { APP_NAME, APP_VERSION } from '../constants/appInfo';
 import { ARTIFACT_TYPES } from '../constants/artifactTypes';
 import { ArtifactTypeIcon } from './ArtifactTypeIcon';
@@ -41,6 +42,8 @@ import type { LatestRelease } from '../utils/appUpdate';
 type ProjectSidebarProps = {
   themePreference: ThemePreference;
   onThemePreferenceChange: (preference: ThemePreference) => void;
+  palette: PaletteId;
+  onPaletteChange: (palette: PaletteId) => void;
   activeArtifactId: string | null;
   activeProjectId: string | null;
   isCollapsed: boolean;
@@ -135,6 +138,8 @@ export function ProjectSidebar({
   onDismissUpdate,
   onToggleCollapsed,
   onThemePreferenceChange,
+  palette,
+  onPaletteChange,
   projects,
   themePreference,
   update,
@@ -341,7 +346,7 @@ export function ProjectSidebar({
               <span className="v2-update-dot" role="img" aria-label={`Hay una versión nueva (${update.version})`} title={`Hay una versión nueva (${update.version})`} />
             ) : null}
           </button>
-          <ThemeToggle preference={themePreference} onChange={onThemePreferenceChange} />
+          <ThemeToggle preference={themePreference} onChange={onThemePreferenceChange} palette={palette} onPaletteChange={onPaletteChange} />
         </div>
         {newArtifactMenuElement}
       </aside>
@@ -585,7 +590,7 @@ export function ProjectSidebar({
         </div>
       ) : null}
       <div className="v2-sidebar-footer">
-        <ThemeToggle preference={themePreference} onChange={onThemePreferenceChange} showLabel />
+        <ThemeToggle preference={themePreference} onChange={onThemePreferenceChange} palette={palette} onPaletteChange={onPaletteChange} showLabel />
         <div className="v2-sidebar-footer-end">
           <span className="v2-sidebar-version" title="Versión instalada">{`v${APP_VERSION}`}</span>
           <button aria-label="Atajos de teclado" className="v2-tool" type="button" onClick={onOpenShortcuts} title="Atajos de teclado (?)">

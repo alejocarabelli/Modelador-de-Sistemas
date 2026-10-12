@@ -399,7 +399,7 @@ export function ArtifactViewer({ projectId, artifactId }: { projectId: string; a
   }, [artifact]);
 
   return (
-    <div className="app-shell artifact-viewer" data-theme={theme.id} data-ui-version="refined" style={themeStyle}>
+    <div className="app-shell artifact-viewer" data-theme={theme.id} data-appearance={theme.appearance} data-palette={theme.palette} data-ui-version="refined" style={themeStyle}>
       <header className="artifact-viewer-bar">
         <div className="artifact-viewer-title">
           <strong>{artifact?.name ?? 'Artefacto no disponible'}</strong>
