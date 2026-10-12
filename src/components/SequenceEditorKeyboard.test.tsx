@@ -388,13 +388,18 @@ describe('keyboard fragment creation', () => {
     threeLifelines();
     createFragment('a');
     artifact = { ...artifact, content: lastContent() };
-    let tree = renderEditor();
-    const before = composerState(tree);
     onChangeContent.mockClear();
     for (const key of ['m', 'f', 'p', 'r', 's', 'n', 'Enter']) press(key);
-    tree = renderEditor();
+    const tree = renderEditor();
     expect(onChangeContent).not.toHaveBeenCalled();
-    expect(composerState(tree)).toEqual(before);
+    expect(elements(tree).some((node) => node.props.className === 'sequence-inline-input')).toBe(true);
+  });
+
+  it('hides the keyboard composer so it does not cover the name editor', () => {
+    threeLifelines();
+    const tree = createFragment('a');
+    expect(elements(tree).some((node) => node.props.className === 'sequence-inline-input')).toBe(true);
+    expect(elements(tree).some((node) => node.type === SequenceKeyboardComposer)).toBe(false);
   });
 });
 
