@@ -24,6 +24,19 @@ Se instala solo para tu usuario, sin pedir permisos de administrador.
 
 Instalá la versión nueva encima de la anterior: tus proyectos se conservan. Desde esta versión, la app te avisa cuando hay una nueva (si tenés internet) y muestra su número abajo en la barra lateral y en la ayuda (tecla **?**).
 
+## Novedades de la 2.6.0
+
+### Archivos
+
+- Cada proyecto tiene una sección **Archivos** para guardar PDFs, como el enunciado o una resolución, aparte de los artefactos.
+- Un PDF se abre en una pestaña o en una ventana propia, por ejemplo en el iPad usado como segundo monitor.
+- El visor se ve nítido a cualquier zoom, y el pellizco y el scroll son fluidos.
+- Quitar un PDF del proyecto no lo borra enseguida: solo va a la Papelera cuando ningún proyecto ni respaldo lo usa hace más de 7 días.
+
+### Diagrama de secuencia
+
+- Modo teclado: al crear un fragmento, el cartel del teclado ya no tapa el campo donde escribís su nombre.
+
 ## Novedades de la 2.5.0
 
 ### Para empezar
