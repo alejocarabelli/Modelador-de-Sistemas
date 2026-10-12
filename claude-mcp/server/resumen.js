@@ -12,10 +12,17 @@ const TIPOS = {
 
 export const nombreDeTipo = (tipo) => TIPOS[tipo] ?? tipo;
 
+// Con { ids: true } cada elemento lleva su id entre ‹ ›, para que Claude pueda
+// apuntarle con editar_artefacto sin leer el JSON entero. Se fija por llamada
+// (resumirArtefacto es sincrónico).
+let conIds = false;
+const id = (elemento) => (conIds && typeof elemento?.id === 'string' ? ` ‹${elemento.id}›` : '');
+
 const texto = (valor) => (typeof valor === 'string' ? valor.trim() : '');
 const lista = (valor) => (Array.isArray(valor) ? valor : []);
 
-export function resumirArtefacto(artefacto, proyecto) {
+export function resumirArtefacto(artefacto, proyecto, opciones = {}) {
+  conIds = opciones.ids === true;
   const contenido = artefacto?.content ?? {};
   const lineas = [`# ${nombreDeTipo(artefacto.type)}: ${texto(artefacto.name) || '(sin nombre)'}`];
   if (artefacto.updatedAt) lineas.push(`Última modificación: ${artefacto.updatedAt}`);
@@ -62,19 +69,19 @@ function resumirClases(contenido) {
 
   for (const nodo of nodos) {
     const datos = nodo.data ?? {};
-    lineas.push('', `### ${nombres.get(nodo.id)}`);
+    lineas.push('', `### ${nombres.get(nodo.id)}${id(nodo)}`);
     if (texto(datos.description)) lineas.push(`Descripción: ${texto(datos.description)}`);
     const atributos = lista(datos.attributes);
     const metodos = lista(datos.methods);
     if (atributos.length === 0 && metodos.length === 0) lineas.push('(sin atributos ni métodos)');
     for (const atributo of atributos) {
       const tipo = texto(atributo.type);
-      lineas.push(miembroEstatico(atributo, `- atributo ${texto(atributo.name)}${tipo ? `: ${tipo}` : ''}`));
+      lineas.push(miembroEstatico(atributo, `- atributo ${texto(atributo.name)}${tipo ? `: ${tipo}` : ''}`) + id(atributo));
     }
     for (const metodo of metodos) {
       const visibilidad = metodo.visibility ? `${metodo.visibility} ` : '';
       const retorno = texto(metodo.returnType);
-      lineas.push(miembroEstatico(metodo, `- método ${visibilidad}${texto(metodo.name)}(${texto(metodo.parameters)})${retorno ? `: ${retorno}` : ''}`));
+      lineas.push(miembroEstatico(metodo, `- método ${visibilidad}${texto(metodo.name)}(${texto(metodo.parameters)})${retorno ? `: ${retorno}` : ''}`) + id(metodo));
     }
     const valores = lista(datos.parametricValues).map((valor) => texto(valor.value)).filter(Boolean);
     if (datos.hasParametricValuesNote && valores.length > 0) lineas.push(`Nota de valores paramétricos: ${valores.join(', ')}`);
@@ -85,7 +92,7 @@ function resumirClases(contenido) {
   const aristas = lista(contenido.edges);
   lineas.push('', `## Relaciones (${aristas.length})`);
   if (aristas.length === 0) lineas.push('(ninguna)');
-  for (const arista of aristas) lineas.push(`- ${describirRelacionDeClases(arista, nombres)}`);
+  for (const arista of aristas) lineas.push(`- ${describirRelacionDeClases(arista, nombres)}${id(arista)}`);
   return lineas;
 }
 
@@ -146,7 +153,7 @@ function resumirCasosDeUso(contenido) {
   const nodos = lista(contenido.nodes);
   const nombre = (nodo) => texto(nodo.data?.name) || '(sin nombre)';
   const nombres = new Map(nodos.map((nodo) => [nodo.id, nombre(nodo)]));
-  const deTipo = (kind) => nodos.filter((nodo) => nodo.data?.kind === kind).map(nombre);
+  const deTipo = (kind) => nodos.filter((nodo) => nodo.data?.kind === kind).map((nodo) => `${nombre(nodo)}${id(nodo)}`);
 
   const lineas = [];
   const limites = deTipo('system-boundary');
@@ -166,7 +173,7 @@ function resumirCasosDeUso(contenido) {
       extend: `${origen} «extend» ${destino}`,
       generalization: `${origen} es una especialización de ${destino} (generalización)`,
     }[arista.data?.relationType] ?? `${origen} — ${destino} (asociación)`;
-    lineas.push(`- ${linea}${etiqueta}`);
+    lineas.push(`- ${linea}${etiqueta}${id(arista)}`);
   }
   return lineas;
 }
@@ -196,7 +203,7 @@ function filas(lineasDelFlujo) {
     if (texto(fila.actor)) partes.push(`Actor: ${texto(fila.actor)}`);
     if (texto(fila.system)) partes.push(`Sistema: ${texto(fila.system)}`);
     if (texto(fila.ref)) partes.push(`deriva a ${texto(fila.ref)}`);
-    return `- ${partes.join(' | ') || '(fila vacía)'}`;
+    return `- ${partes.join(' | ') || '(fila vacía)'}${id(fila)}`;
   });
 }
 
@@ -209,7 +216,7 @@ function resumirFlujo(contenido) {
   lineas.push('', '## Camino básico', ...filas(lista(contenido.basicFlow)));
   for (const alternativo of lista(contenido.alternativeFlows)) {
     const titulo = [texto(alternativo.code), texto(alternativo.name)].filter(Boolean).join(' · ') || '(camino sin nombre)';
-    lineas.push('', `## Camino alternativo ${titulo}`, ...filas(lista(alternativo.steps)));
+    lineas.push('', `## Camino alternativo ${titulo}${id(alternativo)}`, ...filas(lista(alternativo.steps)));
   }
   return lineas;
 }
@@ -242,7 +249,7 @@ function resumirSecuencia(contenido, proyecto) {
   lineas.push('', `## Participantes (de izquierda a derecha, ${participantes.length})`);
   const ordenados = [...participantes].sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
   for (const participante of ordenados) {
-    lineas.push(`- ${nombres.get(participante.id)} (${TIPOS_DE_PARTICIPANTE[participante.kind] ?? participante.kind})`);
+    lineas.push(`- ${nombres.get(participante.id)} (${TIPOS_DE_PARTICIPANTE[participante.kind] ?? participante.kind})${id(participante)}`);
   }
 
   // Los mensajes se nombran por su texto y sus participantes, nunca por un
@@ -275,14 +282,14 @@ function resumirSecuencia(contenido, proyecto) {
         lista(item.operands).forEach((operando, indice) => {
           if (item.operator !== 'ref') {
             const guarda = texto(operando.guard) ? `[${texto(operando.guard)}]` : '(sin guarda)';
-            lineas.push(`${sangria}  ${indice === 0 ? 'operando' : 'else'} ${guarda}`);
+            lineas.push(`${sangria}  ${indice === 0 ? 'operando' : 'else'} ${guarda}${id(operando)}`);
           }
           recorrer(operando.items, `${sangria}    `);
         });
         lineas.push(`${sangria}fin ${item.operator}`);
         continue;
       }
-      lineas.push(`${sangria}- ${describirMensaje(item, nombres, mensajes)}`);
+      lineas.push(`${sangria}- ${describirMensaje(item, nombres, mensajes)}${id(item)}`);
     }
   };
   recorrer(contenido.items, '');
@@ -297,7 +304,7 @@ function resumirSecuencia(contenido, proyecto) {
         : nota.anchorKind === 'participant' && nombres.has(nota.anchorId)
           ? ` (sobre ${nombres.get(nota.anchorId)})`
           : '';
-      lineas.push(`- ${texto(nota.text)}${ancla}`);
+      lineas.push(`- ${texto(nota.text)}${ancla}${id(nota)}`);
     }
   }
 
@@ -332,9 +339,9 @@ function describirFragmento(fragmento, sangria, artefactos) {
     const enlace = fragmento.interactionArtifactId
       ? ` → secuencia "${artefactos.get(fragmento.interactionArtifactId) ?? '(inexistente)'}"`
       : ' (sin vincular)';
-    return [`${sangria}ref ${nombre || '(sin nombre)'}${enlace}`];
+    return [`${sangria}ref ${nombre || '(sin nombre)'}${enlace}${id(fragmento)}`];
   }
-  return [`${sangria}fragmento ${fragmento.operator} (${OPERADORES[fragmento.operator] ?? fragmento.operator})${nombre ? ` "${nombre}"` : ''}`];
+  return [`${sangria}fragmento ${fragmento.operator} (${OPERADORES[fragmento.operator] ?? fragmento.operator})${nombre ? ` "${nombre}"` : ''}${id(fragmento)}`];
 }
 
 /** Cómo nombrar un mensaje al hablar de él: «getNombre()» de :A a :B. */

@@ -8,11 +8,12 @@
 import { createInterface } from 'node:readline';
 import { leerDatosEnVivo } from './enVivo.js';
 import { guiaPara } from './guia.js';
+import { aplicarOperaciones } from './edicion.js';
 import { escribirPropuesta, problemasDelContenido, propuestasPendientes, TIPOS_VALIDOS } from './propuestas.js';
 import { antiguedad, buscar, leerUltimoRespaldo, loQueEstaAbierto, proyectosDe } from './respaldos.js';
 import { nombreDeTipo, resumirApuntes, resumirArtefacto } from './resumen.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 const ARGUMENTOS_DE_ARTEFACTO = {
   type: 'object',
@@ -23,12 +24,17 @@ const ARGUMENTOS_DE_ARTEFACTO = {
   required: ['artefacto'],
 };
 
+const CON_IDS = {
+  type: 'boolean',
+  description: 'Agrega el id de cada elemento entre ‹ ›. Pedilo antes de usar editar_artefacto.',
+};
+
 const HERRAMIENTAS = [
   {
     name: 'ver_lo_que_estoy_haciendo',
     description:
       'Muestra el artefacto que el estudiante tiene abierto ahora en el Modelador de Sistemas (diagrama de clases, casos de uso, flujo de sucesos, secuencia o clases de secuencias), resumido en texto, con sus apuntes y dudas. Usala primero cuando pregunte por "esto", "mi diagrama" o lo que está haciendo.',
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: { type: 'object', properties: { con_ids: CON_IDS } },
   },
   {
     name: 'listar_proyectos',
@@ -39,7 +45,7 @@ const HERRAMIENTAS = [
     name: 'leer_artefacto',
     description:
       'Lee otro artefacto del proyecto, resumido en texto. Sirve para comparar, por ejemplo, una secuencia con su flujo de sucesos o con el diagrama de clases.',
-    inputSchema: ARGUMENTOS_DE_ARTEFACTO,
+    inputSchema: { ...ARGUMENTOS_DE_ARTEFACTO, properties: { ...ARGUMENTOS_DE_ARTEFACTO.properties, con_ids: CON_IDS } },
   },
   {
     name: 'leer_mis_dudas',
@@ -52,7 +58,7 @@ const HERRAMIENTAS = [
   {
     name: 'leer_artefacto_json',
     description:
-      'Devuelve el JSON completo de un artefacto, con posiciones y datos de dibujo. Es mucho más largo: usala solo si el resumen no alcanza para responder.',
+      'Devuelve el JSON completo de un artefacto, con posiciones y datos de dibujo. Es mucho más largo: usala solo si el resumen (con con_ids) no alcanza, por ejemplo para ver los campos exactos de un elemento antes de agregar uno parecido.',
     inputSchema: ARGUMENTOS_DE_ARTEFACTO,
   },
   {
@@ -73,14 +79,40 @@ const HERRAMIENTAS = [
 ].map((herramienta) => ({ ...herramienta, annotations: { readOnlyHint: true, openWorldHint: false } }));
 
 HERRAMIENTAS.push({
+  name: 'editar_artefacto',
+  description: [
+    'Propone cambios puntuales en un artefacto existente sin reescribirlo: mandás solo operaciones sobre elementos identificados por su id',
+    '(sacá los id con ver_lo_que_estoy_haciendo o leer_artefacto con con_ids: true). La extensión las aplica sobre la versión actual,',
+    'verifica que no quede ninguna referencia rota (por ejemplo un retorno sin su llamada) y deja UNA propuesta: el estudiante la ve en la app',
+    'y elige Aplicar o Descartar; si aplica, se deshace en un paso. Usala solo cuando te pida que cambies algo.',
+    'Operaciones: {"op":"modificar","id":X,"campos":{...}} mezcla los campos (los objetos por dentro, p. ej. {"data":{"name":"Y"}} en una clase;',
+    'las listas se reemplazan; null borra el campo). {"op":"agregar","en":X,"lista":"nombre de la lista","elemento":{...},"despues_de":id|"inicio"}',
+    '(sin despues_de va al final; sin id en el elemento se genera uno). {"op":"quitar","id":X}. {"op":"mover","id":X,"en":Y,"lista":...,"despues_de":...}',
+    'para cambiar algo de lugar (por ejemplo sacar un mensaje de un fragmento: en = id del operando o "contenido", lista = "items").',
+    'El id "contenido" es la raíz: el encabezado de un flujo se cambia con {"op":"modificar","id":"contenido","campos":{"description":{"postcondition":"..."}}}.',
+    'Listas habituales: en "contenido", nodes y edges (clases y casos de uso), participants e items (secuencia), basicFlow y alternativeFlows (flujo);',
+    'en una clase, "data.attributes" y "data.methods"; en un fragmento, "operands"; en un operando, "items"; en un camino alternativo, "steps".',
+  ].join(' '),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      artefacto: ARGUMENTOS_DE_ARTEFACTO.properties.artefacto,
+      proyecto: ARGUMENTOS_DE_ARTEFACTO.properties.proyecto,
+      operaciones: { type: 'array', items: { type: 'object' }, description: 'Las operaciones, en orden.' },
+      descripcion: { type: 'string', description: 'Qué cambia y por qué, en una o dos oraciones, para el aviso de la app.' },
+    },
+    required: ['artefacto', 'operaciones', 'descripcion'],
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+});
+
+HERRAMIENTAS.push({
   name: 'proponer_cambio',
   description: [
-    'Propone un cambio en un artefacto del Modelador de Sistemas, o un artefacto nuevo. No modifica nada por sí sola:',
-    'en la app le aparece al estudiante un aviso con tu descripción y los botones Aplicar y Descartar, y si aplica puede deshacerlo.',
-    'Usala solo cuando el estudiante te pida que cambies o armes algo; si solo pregunta, explicá sin proponer.',
-    'Para cambiar un artefacto: leelo con leer_artefacto_json, modificá lo necesario y mandá el "content" COMPLETO resultante,',
-    'conservando los id y las posiciones de todo lo que no cambia. Para uno nuevo: pasá nuevo_tipo y nuevo_nombre en vez de artefacto.',
-    'Si no conocés el formato del tipo, leé antes ver_guia_de_formato.',
+    'Propone un artefacto NUEVO (con nuevo_tipo y nuevo_nombre) o la reescritura completa de uno chico.',
+    'Para cambiar partes de un artefacto existente usá editar_artefacto: es más seguro y mucho más corto.',
+    'No modifica nada por sí sola: en la app le aparece al estudiante un aviso con tu descripción y los botones Aplicar y Descartar, y si aplica puede deshacerlo.',
+    'Usala solo cuando el estudiante te pida que armes o cambies algo. Si no conocés el formato del tipo, leé antes ver_guia_de_formato.',
   ].join(' '),
   inputSchema: {
     type: 'object',
@@ -161,7 +193,7 @@ async function ejecutar(nombre, argumentos = {}) {
         `Proyecto: ${abierto.proyecto.name}`,
         otros.length > 0 ? `Otros artefactos del proyecto (se leen con leer_artefacto): ${otros.join('; ')}` : '',
         '',
-        resumirArtefacto(abierto.artefacto, abierto.proyecto),
+        resumirArtefacto(abierto.artefacto, abierto.proyecto, { ids: argumentos.con_ids === true }),
       ].join('\n');
     }
     case 'listar_proyectos': {
@@ -178,7 +210,7 @@ async function ejecutar(nombre, argumentos = {}) {
     }
     case 'leer_artefacto': {
       const proyecto = elegirProyecto(proyectos, argumentos.proyecto);
-      return `${encabezado(datos)}\n\n${resumirArtefacto(elegirArtefacto(proyecto, argumentos.artefacto), proyecto)}`;
+      return `${encabezado(datos)}\n\n${resumirArtefacto(elegirArtefacto(proyecto, argumentos.artefacto), proyecto, { ids: argumentos.con_ids === true })}`;
     }
     case 'leer_artefacto_json': {
       const proyecto = elegirProyecto(proyectos, argumentos.proyecto);
@@ -197,11 +229,51 @@ async function ejecutar(nombre, argumentos = {}) {
       if (!hay) lineas.push('', '(No escribió apuntes ni dudas en este proyecto.)');
       return lineas.join('\n');
     }
+    case 'editar_artefacto':
+      return editarArtefacto(proyectos, argumentos);
     case 'proponer_cambio':
       return proponerCambio(proyectos, argumentos);
     default:
       throw new Error(`Herramienta desconocida: ${nombre}`);
   }
+}
+
+async function editarArtefacto(proyectos, argumentos) {
+  const proyecto = elegirProyecto(proyectos, argumentos.proyecto);
+  if (!proyecto) throw new Error('No hay un proyecto abierto.');
+  const artefacto = elegirArtefacto(proyecto, argumentos.artefacto);
+  const descripcion = String(argumentos.descripcion ?? '').trim();
+  if (!descripcion) throw new Error('Falta "descripcion": el estudiante la lee antes de decidir.');
+  let operaciones = argumentos.operaciones;
+  if (typeof operaciones === 'string') {
+    try {
+      operaciones = JSON.parse(operaciones);
+    } catch {
+      throw new Error('"operaciones" no es un JSON válido.');
+    }
+  }
+
+  const { contenido, hechas } = aplicarOperaciones(artefacto.content, operaciones);
+  return guardarPropuesta({
+    projectId: proyecto.id,
+    artifactId: artefacto.id,
+    type: artefacto.type,
+    name: artefacto.name,
+    basedOnUpdatedAt: artefacto.updatedAt ?? null,
+  }, contenido, descripcion, `Operaciones aplicadas sobre la versión actual: ${hechas.join(', ')}.`);
+}
+
+async function guardarPropuesta(propuesta, contenido, descripcion, detalle = '') {
+  const problemas = problemasDelContenido(propuesta.type, contenido);
+  if (problemas.length > 0) {
+    throw new Error(`La app no aceptaría este contenido:\n- ${problemas.join('\n- ')}\nRevisá ver_guia_de_formato y volvé a intentar.`);
+  }
+  await escribirPropuesta({ ...propuesta, description: descripcion, content: contenido });
+  return [
+    detalle,
+    `Listo: en el Modelador le aparece al estudiante un aviso para ${propuesta.artifactId ? `aplicar el cambio en "${propuesta.name}"` : `crear "${propuesta.name}"`} o descartarlo.`,
+    'Todavía no se aplicó: decíselo, y que si lo aplica lo puede deshacer.',
+  ].filter(Boolean).join(' ');
 }
 
 async function proponerCambio(proyectos, argumentos) {
@@ -234,16 +306,7 @@ async function proponerCambio(proyectos, argumentos) {
     propuesta = { projectId: proyecto.id, artifactId: null, type: argumentos.nuevo_tipo, name: nombre, basedOnUpdatedAt: null };
   }
 
-  const problemas = problemasDelContenido(propuesta.type, contenido);
-  if (problemas.length > 0) {
-    throw new Error(`La app no aceptaría este contenido:\n- ${problemas.join('\n- ')}\nRevisá ver_guia_de_formato y volvé a intentar.`);
-  }
-
-  await escribirPropuesta({ ...propuesta, description: descripcion, content: contenido });
-  return [
-    `Listo: en el Modelador le aparece al estudiante un aviso para ${propuesta.artifactId ? `aplicar el cambio en "${propuesta.name}"` : `crear "${propuesta.name}"`} o descartarlo.`,
-    'Todavía no se aplicó: decíselo, y que si lo aplica lo puede deshacer.',
-  ].join(' ');
+  return guardarPropuesta(propuesta, contenido, descripcion);
 }
 
 // ---------------------------------------------------------------------------
@@ -264,7 +327,7 @@ async function atender(pedido) {
           capabilities: { tools: {} },
           serverInfo: { name: 'modelador-de-sistemas', version: VERSION },
           instructions:
-            'Herramientas para ver el trabajo del estudiante en el Modelador de Sistemas (materia Diseño de Sistemas). Leen lo que la app tiene guardado en este Mac. Para cambiar algo, proponer_cambio deja una propuesta que el estudiante aplica o descarta en la app; nunca se modifica nada sin que él acepte. Al hablar de un mensaje de una secuencia, nombralo por su texto, sus participantes y el fragmento donde está; no le pongas números, porque el estudiante no los usa.',
+            'Herramientas para ver el trabajo del estudiante en el Modelador de Sistemas (materia Diseño de Sistemas). Leen lo que la app tiene guardado en este Mac. Para cambiar algo, editar_artefacto (cambios puntuales) o proponer_cambio (artefactos nuevos) dejan una propuesta que el estudiante aplica o descarta en la app; nunca se modifica nada sin que él acepte. Al hablar de un mensaje de una secuencia, nombralo por su texto, sus participantes y el fragmento donde está; no le pongas números, porque el estudiante no los usa.',
         },
       });
     case 'ping':

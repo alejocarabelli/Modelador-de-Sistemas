@@ -201,7 +201,7 @@ test('responde el protocolo MCP por stdio', async () => {
   const porId = new Map(respuestas.map((r) => [r.id, r]));
 
   assert.equal(porId.get(1).result.serverInfo.name, 'modelador-de-sistemas');
-  assert.deepEqual(porId.get(2).result.tools.map((t) => t.name), ['ver_lo_que_estoy_haciendo', 'listar_proyectos', 'leer_artefacto', 'leer_mis_dudas', 'leer_artefacto_json', 'ver_guia_de_formato', 'ver_propuestas_pendientes', 'proponer_cambio']);
+  assert.deepEqual(porId.get(2).result.tools.map((t) => t.name), ['ver_lo_que_estoy_haciendo', 'listar_proyectos', 'leer_artefacto', 'leer_mis_dudas', 'leer_artefacto_json', 'ver_guia_de_formato', 'ver_propuestas_pendientes', 'editar_artefacto', 'proponer_cambio']);
   assert.match(porId.get(3).result.content[0].text, /Proyecto: Gestión de trámites/);
   assert.equal(porId.get(4).result.isError, true);
   assert.match(porId.get(4).result.content[0].text, /no hay un artefacto "no existe"/);
