@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { readUiPreference, writeUiPreference } from '../storage/uiPreferences';
 import {
-  academicDarkTheme,
-  academicLightTheme,
   DEFAULT_THEME_ID,
-  getThemeById,
+  getExportTheme,
+  getTheme,
+  isPaletteId,
   type DiagramTheme,
-  type DiagramThemeId,
+  type PaletteId,
   type StatusTone,
 } from '../theme/themes';
 
@@ -16,6 +16,15 @@ type ThemeCssProperties = CSSProperties & Record<`--${string}`, string | number>
 export type ThemePreference = 'system' | 'light' | 'dark';
 
 export const THEME_PREFERENCE_KEY = 'modelador.theme-preference';
+/** Global palette. Absent until the user picks one in the welcome dialog. */
+export const PALETTE_PREFERENCE_KEY = 'modelador.palette';
+/** What the app shows while nobody has picked yet: the welcome dialog previews it first. */
+export const DEFAULT_PALETTE: PaletteId = 'indigo';
+
+export const readPalettePreference = (): PaletteId | null => {
+  const stored = readUiPreference(PALETTE_PREFERENCE_KEY);
+  return isPaletteId(stored) ? stored : null;
+};
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 const isThemePreference = (value: unknown): value is ThemePreference =>
@@ -127,16 +136,22 @@ export const buildThemeVariables = (theme: DiagramTheme): ThemeCssProperties => 
   ...buildStatusVariables(theme),
 });
 
+/** The palette on screen, as `useTheme` publishes it on the root element. */
+const readDocumentPalette = (): PaletteId => {
+  const value = document.documentElement.dataset.palette;
+  return isPaletteId(value) ? value : 'cuaderno';
+};
+
 /**
  * Applies the light variables to a subtree so an export ignores dark mode.
  * Color transitions are suspended first, otherwise the capture would read
  * colors halfway between both palettes.
  */
-export const applyExportThemeVariables = (element: HTMLElement): (() => void) => {
+export const applyExportThemeVariables = (element: HTMLElement, palette: PaletteId = readDocumentPalette()): (() => void) => {
   const previous = element.getAttribute('style');
   element.classList.add('export-theme-override');
   void element.offsetWidth;
-  Object.entries(buildThemeVariables(academicLightTheme)).forEach(([name, value]) => {
+  Object.entries(buildThemeVariables(getExportTheme(palette))).forEach(([name, value]) => {
     if (name.startsWith('--')) element.style.setProperty(name, String(value));
   });
   element.style.colorScheme = 'light';
@@ -167,9 +182,13 @@ export const useTheme = () => {
     return () => media.removeEventListener('change', handleChange);
   }, []);
 
+  const [chosenPalette, setChosenPalette] = useState<PaletteId | null>(readPalettePreference);
+  // While the welcome dialog is open, the card picked there previews on the whole app.
+  const [previewPalette, setPreviewPalette] = useState<PaletteId | null>(null);
+  const palette = previewPalette ?? chosenPalette ?? DEFAULT_PALETTE;
+
   const isDark = preference === 'dark' || (preference === 'system' && systemPrefersDark);
-  const themeId: DiagramThemeId = isDark ? academicDarkTheme.id : DEFAULT_THEME_ID;
-  const theme = getThemeById(themeId);
+  const theme = getTheme(palette, isDark ? 'dark' : 'light');
   const themeStyle = useMemo(() => buildThemeVariables(theme), [theme]);
 
   // The page behind the shell (overscroll, native scrollbars) follows too.
@@ -178,6 +197,7 @@ export const useTheme = () => {
     root.style.colorScheme = theme.appearance;
     root.style.backgroundColor = theme.ui.appBackground;
     root.dataset.appearance = theme.appearance;
+    root.dataset.palette = theme.palette;
   }, [theme]);
 
   const setPreference = useCallback((next: ThemePreference) => {
@@ -185,7 +205,23 @@ export const useTheme = () => {
     writeUiPreference(THEME_PREFERENCE_KEY, next);
   }, []);
 
-  return { preference, setPreference, theme, themeStyle };
+  const setPalette = useCallback((next: PaletteId) => {
+    setChosenPalette(next);
+    setPreviewPalette(null);
+    writeUiPreference(PALETTE_PREFERENCE_KEY, next);
+  }, []);
+
+  return {
+    preference,
+    setPreference,
+    palette,
+    /** False until the user has picked a palette once: App shows the welcome dialog. */
+    paletteChosen: chosenPalette !== null,
+    setPalette,
+    setPreviewPalette,
+    theme,
+    themeStyle,
+  };
 };
 
 export { DEFAULT_THEME_ID };

@@ -36,7 +36,8 @@ import { isNotebookEvent } from '../utils/notebookKeyboard';
 import { hasCommandModifier, shouldIgnoreEditorShortcut } from '../utils/editorShortcutGuards';
 import { formatSequenceMessageChange } from '../utils/sequenceEditorFeedback';
 import { InspectorDeleteButton, InspectorPanel, type InspectorTone } from './ui/Panel';
-import { EXPORT_THEME, type DiagramTheme } from '../theme/themes';
+import { getExportTheme, type DiagramTheme } from '../theme/themes';
+import { resolveSequenceNoteScheme } from '../utils/sequenceParticipantColors';
 import { CanvasStartCard } from './CanvasStartCard';
 import { SequenceParticipantClassField } from './SequenceParticipantClassField';
 import { useDialogs } from '../hooks/useDialogs';
@@ -4600,9 +4601,9 @@ export function SequenceDiagramEditor({
               id,
               desc,
               label: SEQUENCE_NOTE_COLORS[id].label,
-              dot: SEQUENCE_NOTE_COLORS[id].dot,
-              bg: SEQUENCE_NOTE_COLORS[id].background,
-              border: SEQUENCE_NOTE_COLORS[id].border,
+              dot: resolveSequenceNoteScheme(theme, id).dot,
+              bg: resolveSequenceNoteScheme(theme, id).background,
+              border: resolveSequenceNoteScheme(theme, id).border,
             })).map((colorOpt) => {
               const isSelected = (selectedNote.color ?? 'yellow') === colorOpt.id;
               return (
@@ -5317,16 +5318,16 @@ export function SequenceDiagramEditor({
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => event.stopPropagation()}
                     >
-                      {Object.entries(SEQUENCE_NOTE_COLORS).map(([color, scheme]) => (
+                      {(Object.keys(SEQUENCE_NOTE_COLORS) as Array<NonNullable<SequenceNote['color']>>).map((color) => (
                         <button
                           key={color}
                           type="button"
-                          title={scheme.label}
-                          aria-label={scheme.label}
+                          title={SEQUENCE_NOTE_COLORS[color].label}
+                          aria-label={SEQUENCE_NOTE_COLORS[color].label}
                           aria-pressed={(selectedNote.color ?? 'yellow') === color}
-                          onClick={() => updateNote(selectedNote.id, { color: color as SequenceNote['color'] })}
+                          onClick={() => updateNote(selectedNote.id, { color })}
                         >
-                          <span className="sequence-note-toolbar-dot" style={{ background: scheme.dot }} />
+                          <span className="sequence-note-toolbar-dot" style={{ background: resolveSequenceNoteScheme(theme, color).dot }} />
                         </button>
                       ))}
                       {selectedNote.anchorKind !== 'free' ? (
@@ -5342,7 +5343,7 @@ export function SequenceDiagramEditor({
                 })() : null}
                 {inlineNoteEditor ? (() => {
                   const targetNote = inlineNoteEditor.draft ?? content.notes.find((n) => n.id === inlineNoteEditor.noteId);
-                  const scheme = SEQUENCE_NOTE_COLORS[targetNote?.color ?? 'yellow'];
+                  const scheme = resolveSequenceNoteScheme(theme, targetNote?.color);
                   return (
                     <div
                       className="sequence-inline-note-container"
@@ -5481,7 +5482,7 @@ export function SequenceDiagramEditor({
             layout={layout}
             selected={null}
             interactive={false}
-            theme={EXPORT_THEME}
+            theme={getExportTheme(theme.palette)}
             classNodesById={classNodesById}
             participantColorsEnabled={content.participantColors !== 'disabled'}
             onSelect={() => undefined}

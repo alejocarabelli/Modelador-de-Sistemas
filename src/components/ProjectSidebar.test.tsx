@@ -28,6 +28,8 @@ const render = (overrides: Partial<Parameters<typeof ProjectSidebar>[0]> = {}) =
       onSelectArtifact={handler}
       onSelectProject={handler}
       onThemePreferenceChange={handler}
+      palette="indigo"
+      onPaletteChange={handler}
       onToggleCollapsed={handler}
       projects={[]}
       themePreference="system"

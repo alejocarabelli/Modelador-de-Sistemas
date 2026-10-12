@@ -64,7 +64,7 @@
   font-feature-settings: 'ss02' 1;
 }
 
-.app-shell[data-theme='academic-dark'] {
+.app-shell[data-appearance='dark'] {
   --shadow-color: 0 0 0;
 }
 
@@ -730,7 +730,7 @@
   text-overflow: ellipsis;
 }
 
-.app-shell[data-theme='academic-dark'] select:not([multiple], [size]) {
+.app-shell[data-appearance='dark'] select:not([multiple], [size]) {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23A3A7A2' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") !important;
 }
 
@@ -905,6 +905,126 @@
   max-height: calc(100dvh - var(--space-8));
   overflow-y: auto;
   width: min(480px, calc(100vw - var(--space-8)));
+}
+
+/* Welcome: the palette is picked once, on two cards that preview it. */
+.app-shell .palette-welcome {
+  display: grid;
+  max-height: calc(100dvh - var(--space-8));
+  overflow-y: auto;
+  width: min(640px, calc(100vw - var(--space-8)));
+}
+
+.app-shell .palette-welcome-eyebrow {
+  color: var(--panel-muted-text);
+  font-family: var(--app-code-font);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+}
+
+.app-shell .palette-welcome-choices {
+  border: 0;
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.app-shell .palette-welcome-card {
+  background: var(--panel-background);
+  border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius-lg);
+  align-content: start;
+  cursor: pointer;
+  display: grid;
+  overflow: hidden;
+  transition: border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.app-shell .palette-welcome-card:hover { border-color: var(--accent-border); }
+
+.app-shell .palette-welcome-card:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft-strong);
+}
+
+.app-shell .palette-welcome-card:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+
+.app-shell .palette-welcome-card input {
+  accent-color: var(--accent);
+  height: 16px;
+  margin: 0;
+  min-height: 0;
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-3);
+  width: 16px;
+}
+
+.app-shell .palette-welcome-card .palette-preview {
+  border-bottom: 1px solid var(--panel-border);
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.app-shell .palette-welcome-card-text {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) calc(var(--space-4) + 24px) var(--space-4) var(--space-4);
+  position: relative;
+}
+
+.app-shell .palette-welcome-card-text strong {
+  color: var(--panel-text);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.app-shell .palette-welcome-card-text > span {
+  color: var(--panel-secondary-text);
+  font-size: var(--text-sm);
+}
+
+.app-shell .palette-welcome-footer {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: space-between;
+  margin-top: var(--space-5);
+}
+
+.app-shell .palette-welcome-appearance {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.app-shell .palette-welcome-appearance button {
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--panel-muted-text);
+  min-height: 26px;
+  padding: 0 var(--space-3);
+}
+
+.app-shell .palette-welcome-appearance button:hover { background: var(--ui-hover-background); }
+
+.app-shell .palette-welcome-appearance button[aria-checked='true'] {
+  background: var(--ui-selected-background);
+  color: var(--ui-selected-text);
+}
+
+@media (max-width: 560px) {
+  .app-shell .palette-welcome-choices { grid-template-columns: minmax(0, 1fr); }
 }
 
 .app-shell .project-artifact-choice {

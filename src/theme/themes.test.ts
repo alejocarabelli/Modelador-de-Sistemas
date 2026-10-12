@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { buildThemeVariables } from '../hooks/useTheme';
-import { toDarkParticipantFamily, SEQUENCE_PARTICIPANT_PALETTE } from '../utils/sequenceParticipantColors';
-import { academicDarkTheme, academicLightTheme, getThemeById, themes } from './themes';
+import {
+  resolveParticipantVisualIdentity,
+  resolveSequenceNoteScheme,
+  toDarkParticipantFamily,
+  SEQUENCE_PARTICIPANT_PALETTE,
+} from '../utils/sequenceParticipantColors';
+import { SEQUENCE_NOTE_COLORS } from '../types/diagram';
+import {
+  academicDarkTheme,
+  academicLightTheme,
+  getExportTheme,
+  getTheme,
+  getThemeById,
+  indigoDarkTheme,
+  indigoLightTheme,
+  themes,
+} from './themes';
 
 const readRaw = (modules: Record<string, unknown>): string[] => Object.values(modules) as string[];
 const stylesheets = readRaw(import.meta.glob('../*.css', { query: '?raw', import: 'default', eager: true }));
@@ -46,14 +61,49 @@ describe('themes', () => {
     });
   });
 
-  it('keeps body text readable on dark surfaces', () => {
-    const { ui, status, sequence, classNode } = academicDarkTheme;
+  it.each([academicDarkTheme, indigoDarkTheme])('keeps body text readable on dark surfaces ($id)', ({ ui, status, sequence, classNode }) => {
     expect(contrast(ui.panelText, ui.panelBackground)).toBeGreaterThan(7);
     expect(contrast(ui.panelMutedText, ui.panelBackground)).toBeGreaterThan(4.5);
     expect(contrast(ui.buttonActiveText, ui.buttonActiveBackground)).toBeGreaterThan(4.5);
     expect(contrast(classNode.text, classNode.background)).toBeGreaterThan(7);
     expect(contrast(sequence.text, sequence.canvasBackground)).toBeGreaterThan(7);
     Object.values(status).forEach((tone) => expect(contrast(tone.text, tone.soft)).toBeGreaterThan(4.5));
+  });
+
+  it('pairs each palette with both appearances and exports on its light theme', () => {
+    expect(getTheme('indigo', 'light')).toBe(indigoLightTheme);
+    expect(getTheme('indigo', 'dark')).toBe(indigoDarkTheme);
+    expect(getTheme('cuaderno', 'dark')).toBe(academicDarkTheme);
+    expect(getExportTheme('indigo')).toBe(indigoLightTheme);
+    expect(getExportTheme('cuaderno')).toBe(academicLightTheme);
+  });
+
+  it('gives every Índigo y ámbar participant indigo boxes and amber activations, whatever its class', () => {
+    const identities = ['Tramite', 'Estado', 'GestorCambioEstado'].map((classifierName) =>
+      resolveParticipantVisualIdentity({ id: classifierName, kind: 'object', name: '', classifierName }, { theme: indigoLightTheme }),
+    );
+    identities.forEach((identity) => {
+      expect(identity.headerBorder).toBe(indigoLightTheme.participants?.headerBorder);
+      expect(identity.activationBorder).toBe(indigoLightTheme.participants?.activationBorder);
+    });
+    const disabled = resolveParticipantVisualIdentity({ id: 't', kind: 'object', name: '', classifierName: 'Tramite' }, { theme: indigoLightTheme, enabled: false });
+    expect(disabled.familyId).toBe('neutral');
+  });
+
+  it('keeps participant text readable on Índigo y ámbar boxes', () => {
+    [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
+      expect(contrast(theme.sequence.text, theme.participants!.headerFill), theme.id).toBeGreaterThan(7);
+    });
+  });
+
+  it('draws Índigo y ámbar notes on the amber note paper with readable text, in both appearances', () => {
+    [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
+      (Object.keys(SEQUENCE_NOTE_COLORS) as Array<keyof typeof SEQUENCE_NOTE_COLORS>).forEach((color) => {
+        const scheme = resolveSequenceNoteScheme(theme, color);
+        expect(contrast(scheme.text, scheme.background), `${theme.id} ${color}`).toBeGreaterThan(7);
+      });
+    });
+    expect(resolveSequenceNoteScheme(academicLightTheme, 'red')).toBe(SEQUENCE_NOTE_COLORS.red);
   });
 
   it('darkens participant families so light text stays legible on their headers', () => {

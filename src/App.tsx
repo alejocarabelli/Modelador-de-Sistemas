@@ -5,6 +5,7 @@ import { createExampleProject, findExampleProject } from './utils/exampleProject
 import { useDialogs } from './hooks/useDialogs';
 import { useAppUpdate } from './hooks/useAppUpdate';
 import { ProjectNameDialog } from './components/ProjectNameDialog';
+import { PaletteWelcomeDialog } from './components/PaletteWelcomeDialog';
 import { ArtifactImportDialog } from './components/ArtifactImportDialog';
 import { ArtifactMoveDialog } from './components/ArtifactMoveDialog';
 import { ProjectHome } from './components/ProjectHome';
@@ -175,7 +176,16 @@ function App() {
     setHistoryByArtifactId(next);
   }, []);
   const historyBurstRef = useRef<{ key: string; updatedAt: number } | null>(null);
-  const { preference: themePreference, setPreference: setThemePreference, theme, themeStyle } = useTheme();
+  const {
+    preference: themePreference,
+    setPreference: setThemePreference,
+    palette,
+    paletteChosen,
+    setPalette,
+    setPreviewPalette,
+    theme,
+    themeStyle,
+  } = useTheme();
   const {
     activeProject,
     activeProjectId,
@@ -1045,7 +1055,7 @@ function App() {
   return (
     <div
       className={`app-shell ${isProjectSidebarCollapsed ? 'project-sidebar-collapsed' : 'project-sidebar-expanded'} ${isProjectHome ? 'project-home-mode' : ''}`}
-      data-theme={theme.id}
+      data-theme={theme.id} data-appearance={theme.appearance} data-palette={theme.palette}
       data-ui-version="refined"
       style={themeStyle}
     >
@@ -1113,6 +1123,8 @@ function App() {
         onSelectProject={setActiveProjectId}
         onToggleCollapsed={() => setIsProjectSidebarCollapsed((isCollapsed) => !isCollapsed)}
         onThemePreferenceChange={setThemePreference}
+        palette={palette}
+        onPaletteChange={setPalette}
         projects={projects}
         themePreference={themePreference}
         update={appUpdate.visibleUpdate}
@@ -1283,6 +1295,16 @@ function App() {
           ) : null}
         </div>
       )}
+      {!paletteChosen ? (
+        <PaletteWelcomeDialog
+          palette={palette}
+          appearance={theme.appearance}
+          themePreference={themePreference}
+          onPreviewPalette={setPreviewPalette}
+          onThemePreferenceChange={setThemePreference}
+          onConfirm={setPalette}
+        />
+      ) : null}
       {projectDialog !== null ? (
         <ProjectNameDialog
           initialName={projectDialog.initialName}

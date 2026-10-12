@@ -8,7 +8,6 @@ import type {
   SequenceParticipant,
   SequenceParticipantKind,
 } from '../types/diagram';
-import { SEQUENCE_NOTE_COLORS } from '../types/diagram';
 import type { DiagramTheme } from '../theme/themes';
 import { findSequenceItem, formatSequenceParticipantName } from '../utils/sequenceDiagram';
 import { findMarqueeHits } from '../utils/sequenceDiagramSelection';
@@ -22,7 +21,7 @@ import {
   SEQUENCE_NOTE_LINE_HEIGHT,
   SEQUENCE_NOTE_PADDING_X,
 } from '../utils/sequenceDiagramGeometry';
-import { resolveParticipantVisualIdentity, type ParticipantVisualIdentity } from '../utils/sequenceParticipantColors';
+import { resolveParticipantVisualIdentity, resolveSequenceNoteScheme, type ParticipantVisualIdentity } from '../utils/sequenceParticipantColors';
 
 type Selection = { kind: 'participant' | 'message' | 'fragment' | 'note'; id: string } | null;
 
@@ -1502,7 +1501,7 @@ function SequenceDiagramCanvasImpl({
         const isEditing = editingNoteId === note.id;
         const noteBox = layout.noteLayouts.get(note.id);
         if (noteBox === undefined) return null;
-        const noteScheme = SEQUENCE_NOTE_COLORS[note.color ?? 'yellow'];
+        const noteScheme = resolveSequenceNoteScheme(theme, note.color);
         // Matches the inline textarea: its 1px border plus the shared padding.
         const noteTextX = noteBox.x + SEQUENCE_NOTE_PADDING_X + 1;
         const anchorPoint = note.anchorKind === 'message' && note.anchorId
