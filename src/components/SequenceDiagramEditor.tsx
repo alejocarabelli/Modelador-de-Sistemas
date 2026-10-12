@@ -366,6 +366,16 @@ export function SequenceDiagramEditor({
   const setSelection = useCallback((next: SequenceSelection): void => {
     setSelectionState(selectSequenceElement(next));
   }, [setSelectionState]);
+  // The item the keyboard cursor highlights on its own (the one just typed or
+  // stepped over) is a focus, not a choice: a new fragment does not wrap it and
+  // a Shift selection does not start from it.
+  const [keyboardFocusState, setKeyboardFocusState] = useState<SequenceSelectionState | null>(null);
+  const setKeyboardFocus = useCallback((next: SequenceSelection): void => {
+    const state = selectSequenceElement(next);
+    setKeyboardFocusState(state);
+    setSelectionState(state);
+  }, [setSelectionState]);
+  const isKeyboardFocusOnly = storedSelectionState === keyboardFocusState;
   const setSelectedTimelineIds = useCallback((next: SetStateAction<string[]>): void => {
     setSelectionState((current) => {
       const currentIds = current.elements.filter((element) => element.kind !== 'participant').map((element) => element.id);
@@ -886,20 +896,23 @@ export function SequenceDiagramEditor({
       if (crossedId) {
         const crossed = findSequenceItem(content.items, crossedId);
         if (crossed) {
-          setSelectionState((current) => toggleSequenceElement(current, { kind: crossed.kind, id: crossed.id }));
+          setSelectionState((current) => toggleSequenceElement(
+            isKeyboardFocusOnly ? selectSequenceElement(null) : current,
+            { kind: crossed.kind, id: crossed.id },
+          ));
         }
       }
     } else {
       const focusedId = nextSlot.itemIds[nextSlot.index - 1] ?? nextSlot.itemIds[nextSlot.index];
       const focused = focusedId ? findSequenceItem(content.items, focusedId) : undefined;
-      if (focused) setSelection({ kind: focused.kind, id: focused.id });
+      if (focused) setKeyboardFocus({ kind: focused.kind, id: focused.id });
     }
     const aliveAtNextSlot = getSequenceParticipantIdsAliveAtSlot(content, layout, nextSlot);
     const nextSource = aliveAtNextSlot.includes(keyboardMode.sourceId)
       ? keyboardMode.sourceId
       : content.participants.find((participant) => aliveAtNextSlot.includes(participant.id))?.id ?? keyboardMode.sourceId;
     dispatchKeyboardMode({ type: 'navigate', slotIndex: nextIndex, sourceId: nextSource });
-  }, [content, keyboardMode.slotIndex, keyboardMode.sourceId, keyboardSlot, keyboardSlots, layout, setSelection, setSelectionState, showFeedback]);
+  }, [content, isKeyboardFocusOnly, keyboardMode.slotIndex, keyboardMode.sourceId, keyboardSlot, keyboardSlots, layout, setKeyboardFocus, setSelectionState, showFeedback]);
 
   const moveKeyboardParticipant = useCallback((direction: -1 | 1, target = false): void => {
     if (keyboardParticipantIds.length === 0) return;
@@ -1015,7 +1028,7 @@ export function SequenceDiagramEditor({
 
   const commitKeyboardFragment = useCallback((): void => {
     if (!keyboardSlot) return;
-    if (selectedTimelineIds.length > 0) {
+    if (selectedTimelineIds.length > 0 && !isKeyboardFocusOnly) {
       const result = wrapSequenceItems(content.items, selectedTimelineIds, keyboardMode.fragmentOperator);
       if (!result) {
         showFeedback('Los elementos deben ser contiguos y pertenecer a la misma rama.');
@@ -1058,7 +1071,7 @@ export function SequenceDiagramEditor({
       });
       showFeedback(`Fragmento ${keyboardMode.fragmentOperator} creado.`);
     }
-  }, [commit, content, keepAnchoredNotesWithTimeline, keyboardMode.fragmentOperator, keyboardMode.sourceId, keyboardSlot, openKeyboardFragmentNameEditor, selectedTimelineIds, setSelectedTimelineIds, setSelection, showFeedback]);
+  }, [commit, content, isKeyboardFocusOnly, keepAnchoredNotesWithTimeline, keyboardMode.fragmentOperator, keyboardMode.sourceId, keyboardSlot, openKeyboardFragmentNameEditor, selectedTimelineIds, setSelectedTimelineIds, setSelection, showFeedback]);
 
   const commitKeyboardMessage = useCallback((addAutomaticReturn = false): void => {
     if (!keyboardSlot || (keyboardMode.stage !== 'aim' && keyboardMode.stage !== 'typing')) return;
@@ -1199,7 +1212,7 @@ export function SequenceDiagramEditor({
         ? sourceId
         : targetId;
     const nextSlots = buildSequenceKeyboardInsertionSlots(candidate, buildSequenceLayout(candidate));
-    setSelection({ kind: 'message', id: selectionId });
+    setKeyboardFocus({ kind: 'message', id: selectionId });
     dispatchKeyboardMode({
       type: 'committed',
       slotIndex: findSequenceKeyboardSlotAfterItem(nextSlots, selectionId),
@@ -1208,7 +1221,7 @@ export function SequenceDiagramEditor({
     showFeedback(addAutomaticReturn && keyboardMode.messageType === 'synchronous'
       ? 'Llamada y retorno creados.'
       : keyboardMode.editId ? 'Mensaje actualizado.' : 'Mensaje creado.');
-  }, [commit, content, keepAnchoredNotesWithTimeline, keyboardMode, keyboardSlot, setSelection, showFeedback]);
+  }, [commit, content, keepAnchoredNotesWithTimeline, keyboardMode, keyboardSlot, setKeyboardFocus, showFeedback]);
 
   useEffect(() => {
     if (keyboardMode.stage === 'off') return;
@@ -2083,9 +2096,11 @@ export function SequenceDiagramEditor({
   };
 
   const addFragment = (operator: SequenceFragmentOperator): void => {
-    const idsToWrap = selectedTimelineIds.length > 0
-      ? selectedTimelineIds
-      : selectedItem?.kind === 'message' ? [selectedItem.id] : [];
+    const idsToWrap = isKeyboardFocusOnly
+      ? []
+      : selectedTimelineIds.length > 0
+        ? selectedTimelineIds
+        : selectedItem?.kind === 'message' ? [selectedItem.id] : [];
     if (idsToWrap.length > 0) {
       handleWrapSelection(operator, idsToWrap);
       return;
