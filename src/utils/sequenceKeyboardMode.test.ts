@@ -6,6 +6,11 @@ import {
   buildSequenceKeyboardInsertionSlots,
   createInactiveSequenceKeyboardState,
   findCompatibleSequenceReturnCalls,
+  findSequenceKeyboardLastTarget,
+  findSequenceKeyboardParticipantByDigit,
+  findSequenceKeyboardSlotNearPoint,
+  getSequenceKeyboardParticipantNumbers,
+  stepSequenceKeyboardSourceHistory,
   insertSequenceItemAtSlot,
   moveCircular,
   parseSequenceCreatedParticipant,
@@ -349,5 +354,77 @@ describe('message type is not remembered between creations', () => {
     state = sequenceKeyboardModeReducer(state, { type: 'deactivate' });
     state = sequenceKeyboardModeReducer(state, { type: 'activate', slotIndex: 0, sourceId: 'a' });
     expect(state.messageType).toBe('synchronous');
+  });
+});
+
+describe('keyboard mode in long diagrams', () => {
+  const active = () => sequenceKeyboardModeReducer(createInactiveSequenceKeyboardState(), { type: 'activate', slotIndex: 0, sourceId: 'a' });
+
+  it('remembers each jump of the origin so ⇧← goes back and ⇧→ redoes', () => {
+    let state = sequenceKeyboardModeReducer(active(), { type: 'navigate', sourceId: 'c', history: 'jump' });
+    state = sequenceKeyboardModeReducer(state, { type: 'navigate', sourceId: 'e', history: 'jump' });
+    expect(state.sourceBack).toEqual(['a', 'c']);
+    const back = stepSequenceKeyboardSourceHistory(state, -1, ['a', 'b', 'c', 'd', 'e'])!;
+    expect(back.sourceId).toBe('c');
+    state = sequenceKeyboardModeReducer(state, { type: 'source-history', ...back });
+    const again = stepSequenceKeyboardSourceHistory(state, -1, ['a', 'b', 'c', 'd', 'e'])!;
+    expect(again.sourceId).toBe('a');
+    state = sequenceKeyboardModeReducer(state, { type: 'source-history', ...again });
+    expect(stepSequenceKeyboardSourceHistory(state, -1, ['a', 'c', 'e'])).toBeUndefined();
+    const redo = stepSequenceKeyboardSourceHistory(state, 1, ['a', 'b', 'c', 'd', 'e'])!;
+    expect(redo.sourceId).toBe('c');
+  });
+
+  it('counts a run of neighbour steps as one move back', () => {
+    let state = active();
+    for (const id of ['b', 'c', 'd']) state = sequenceKeyboardModeReducer(state, { type: 'navigate', sourceId: id, history: 'step' });
+    expect(state.sourceBack).toEqual(['a']);
+    expect(stepSequenceKeyboardSourceHistory(state, -1, ['a', 'b', 'c', 'd'])?.sourceId).toBe('a');
+  });
+
+  it('skips lines that are not alive at the cursor', () => {
+    let state = sequenceKeyboardModeReducer(active(), { type: 'navigate', sourceId: 'b', history: 'jump' });
+    state = sequenceKeyboardModeReducer(state, { type: 'navigate', sourceId: 'c', history: 'jump' });
+    expect(stepSequenceKeyboardSourceHistory(state, -1, ['a', 'c'])?.sourceId).toBe('a');
+  });
+
+  it('keeps the trail and the last destination across saved messages', () => {
+    let state = sequenceKeyboardModeReducer(active(), { type: 'begin', messageType: 'synchronous', targetId: 'a' });
+    state = sequenceKeyboardModeReducer(state, { type: 'committed', slotIndex: 1, sourceId: 'c', usedTarget: { sourceId: 'a', targetId: 'c' } });
+    expect(state).toMatchObject({ stage: 'navigate', sourceId: 'c', sourceBack: ['a'], lastTargets: { a: 'c' }, lastTarget: 'c' });
+    // Saving with ⌥ Enter keeps the origin and adds nothing to the trail.
+    state = sequenceKeyboardModeReducer(state, { type: 'committed', slotIndex: 2, sourceId: 'c', usedTarget: { sourceId: 'c', targetId: 'd' } });
+    expect(state.sourceBack).toEqual(['a']);
+    expect(state.lastTargets).toEqual({ a: 'c', c: 'd' });
+  });
+
+  it('starts the destination as before and ⇧→ finds the last one used', () => {
+    const state = { ...active(), lastTargets: { a: 'd' }, lastTarget: 'e' };
+    expect(sequenceKeyboardModeReducer(state, { type: 'begin', messageType: 'synchronous', targetId: 'a' }).targetId).toBe('a');
+    expect(findSequenceKeyboardLastTarget(state, ['a', 'd', 'e'])).toBe('d');
+    expect(findSequenceKeyboardLastTarget({ ...state, sourceId: 'b' }, ['a', 'd', 'e'])).toBe('e');
+    expect(findSequenceKeyboardLastTarget(state, ['a', 'e'])).toBe('e');
+    expect(findSequenceKeyboardLastTarget({ ...state, lastTargets: {}, lastTarget: undefined }, ['a'])).toBeUndefined();
+  });
+
+  it('numbers lifelines 1 to 9 and 0 from left to right', () => {
+    const lifelines = Array.from({ length: 11 }, (_, index) => ({ id: `p${index}`, x: 1000 - index * 50 }));
+    const numbers = getSequenceKeyboardParticipantNumbers(lifelines);
+    expect(numbers.get('p10')).toBe('1');
+    expect(numbers.get('p2')).toBe('9');
+    expect(numbers.get('p1')).toBe('0');
+    expect(numbers.has('p0')).toBe(false);
+    expect(findSequenceKeyboardParticipantByDigit(lifelines, '2')).toBe('p9');
+  });
+
+  it('places the cursor at the slot under a point, preferring the branch that contains it', () => {
+    const slots = [
+      { id: 'root:0', containerId: 'root', containerName: 'r', index: 0, y: 100, itemIds: [] },
+      { id: 'op:0', containerId: 'op', containerName: 'o', index: 0, y: 205, bounds: { x: 300, width: 200, top: 180, bottom: 240 }, itemIds: [] },
+      { id: 'root:1', containerId: 'root', containerName: 'r', index: 1, y: 260, itemIds: [] },
+    ];
+    expect(findSequenceKeyboardSlotNearPoint(slots, { x: 400, y: 210 })).toBe(1);
+    expect(findSequenceKeyboardSlotNearPoint(slots, { x: 50, y: 210 })).toBe(2);
+    expect(findSequenceKeyboardSlotNearPoint(slots, { x: 50, y: 90 })).toBe(0);
   });
 });

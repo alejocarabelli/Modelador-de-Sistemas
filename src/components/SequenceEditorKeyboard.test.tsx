@@ -489,3 +489,81 @@ describe('message type choice by letter', () => {
     press('r'); expect(typeOf()).toBe('synchronous');
   });
 });
+
+describe('keyboard mode in long diagrams', () => {
+  const fourLifelines = () => {
+    artifact = { ...artifact, content: { ...createEmptySequenceDiagramContent(), participants: [
+      { id: 'a', kind: 'object' as const, name: 'A', classifierName: '', x: 180 },
+      { id: 'b', kind: 'object' as const, name: 'B', classifierName: '', x: 460 },
+      { id: 'c', kind: 'object' as const, name: 'C', classifierName: '', x: 740 },
+      { id: 'd', kind: 'object' as const, name: 'D', classifierName: '', x: 1020 },
+    ], items: [{ ...createSequenceMessage('synchronous', 'a', 'b'), id: 'call', name: 'buscar' }] } };
+  };
+  const state = () => composerState(renderEditor()) as { stage: string; sourceId: string; targetId: string; slotIndex: number };
+  const composer = () => find(renderEditor(), (node) => node.type === SequenceKeyboardComposer).props;
+  const lastContent = () => onChangeContent.mock.calls.at(-1)![0] as typeof artifact.content;
+  const saveMessage = (name: string, stay = false) => {
+    (composer().onTextChange as (text: string) => void)(name);
+    (composer().onSubmit as (addReturn: boolean, stay: boolean) => void)(false, stay);
+    artifact = { ...artifact, content: lastContent() };
+    renderEditor();
+  };
+  const start = () => {
+    fourLifelines();
+    select(renderEditor(), { kind: 'participant', id: 'a' }); renderEditor();
+    press('m'); renderEditor();
+  };
+
+  it('jumps to a lifeline by its number, as origin and as destination', () => {
+    start();
+    expect(state()).toMatchObject({ stage: 'navigate', sourceId: 'a' });
+    press('3');
+    expect(state().sourceId).toBe('c');
+    press('Enter'); renderEditor();
+    expect(state()).toMatchObject({ stage: 'aim', targetId: 'c' });
+    press('4');
+    expect(state().targetId).toBe('d');
+  });
+
+  it('shows the numbers on the lifelines while the mode is on', () => {
+    start();
+    const canvas = find(renderEditor(), (node) => node.type === SequenceDiagramCanvas);
+    expect([...(canvas.props.keyboardParticipantNumbers as Map<string, string>)]).toEqual([['a', '1'], ['b', '2'], ['c', '3'], ['d', '4']]);
+  });
+
+  it('goes back to the line of the call with ⇧← after a message without return', () => {
+    start();
+    press('Enter'); renderEditor(); press('3'); renderEditor(); press('Enter'); renderEditor();
+    saveMessage('setNombre');
+    expect(state().sourceId).toBe('c');
+    press('ArrowLeft', { shiftKey: true });
+    expect(state().sourceId).toBe('a');
+    press('ArrowRight', { shiftKey: true });
+    expect(state().sourceId).toBe('c');
+  });
+
+  it('stays on the origin when the message is saved with ⌥ Enter', () => {
+    start();
+    press('Enter'); renderEditor(); press('3'); renderEditor(); press('Enter'); renderEditor();
+    saveMessage('setNombre', true);
+    expect(state()).toMatchObject({ stage: 'navigate', sourceId: 'a' });
+  });
+
+  it('keeps the default destination and jumps to the last one used with ⇧→', () => {
+    start();
+    press('Enter'); renderEditor(); press('4'); renderEditor(); press('Enter'); renderEditor();
+    saveMessage('setCurso', true);
+    press('Enter');
+    expect(state()).toMatchObject({ stage: 'aim', targetId: 'a' });
+    press('ArrowRight', { shiftKey: true });
+    expect(state().targetId).toBe('d');
+  });
+
+  it('goes to the first and last moment with ⌘↑ and ⌘↓', () => {
+    start();
+    press('ArrowUp', { metaKey: true });
+    expect(state().slotIndex).toBe(0);
+    press('ArrowDown', { metaKey: true });
+    expect(state().slotIndex).toBeGreaterThan(0);
+  });
+});
