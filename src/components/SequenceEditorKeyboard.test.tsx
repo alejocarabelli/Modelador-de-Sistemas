@@ -401,6 +401,60 @@ describe('keyboard fragment creation', () => {
     expect(elements(tree).some((node) => node.props.className === 'sequence-inline-input')).toBe(true);
     expect(elements(tree).some((node) => node.type === SequenceKeyboardComposer)).toBe(false);
   });
+
+  const pickLoopAndCreate = () => {
+    press('f'); let tree = renderEditor();
+    for (let guard = 0; guard < 6 && (composerState(tree) as { fragmentOperator: string }).fragmentOperator !== 'loop'; guard += 1) { press('ArrowDown'); tree = renderEditor(); }
+    press('Enter');
+    return renderEditor();
+  };
+
+  it('does not pull the message just typed into a new loop', () => {
+    threeLifelines();
+    select(renderEditor(), { kind: 'participant', id: 'a' }); renderEditor();
+    press('m'); renderEditor(); press('Enter'); renderEditor(); press('Enter');
+    const composer = () => find(renderEditor(), (node) => node.type === SequenceKeyboardComposer).props;
+    expect(composerState(renderEditor())).toMatchObject({ stage: 'typing' });
+    (composer().onTextChange as (text: string) => void)('pagar');
+    (composer().onSubmit as (addReturn: boolean) => void)(false);
+    artifact = { ...artifact, content: lastContent() };
+    renderEditor();
+    const typed = lastContent().items.at(-1)!;
+    expect(typed).toMatchObject({ kind: 'message' });
+    pickLoopAndCreate();
+    const items = lastContent().items;
+    expect(items.map((item) => item.kind)).toEqual(['message', 'message', 'fragment']);
+    expect(items[1].id).toBe(typed.id);
+    expect(items[2]).toMatchObject({ operator: 'loop', operands: [{ items: [] }] });
+  });
+
+  it('does not pull the message under the cursor into a new loop', () => {
+    threeLifelines();
+    renderEditor(); press('m'); renderEditor();
+    press('ArrowUp'); renderEditor(); press('ArrowDown'); renderEditor();
+    pickLoopAndCreate();
+    const items = lastContent().items;
+    expect(items[0].id).toBe('call');
+    expect(items[1]).toMatchObject({ kind: 'fragment', operator: 'loop', operands: [{ items: [] }] });
+  });
+
+  it('wraps exactly the messages crossed with Shift', () => {
+    threeLifelines();
+    artifact = { ...artifact, content: { ...artifact.content, items: [
+      { ...createSequenceMessage('synchronous', 'a', 'b'), id: 'm1', name: 'uno' },
+      { ...createSequenceMessage('synchronous', 'b', 'c'), id: 'm2', name: 'dos' },
+      { ...createSequenceMessage('synchronous', 'c', 'a'), id: 'm3', name: 'tres' },
+    ] } };
+    renderEditor(); press('m'); renderEditor();
+    press('ArrowUp'); renderEditor(); press('ArrowDown'); renderEditor();
+    press('ArrowUp', { shiftKey: true }); renderEditor();
+    press('ArrowUp', { shiftKey: true }); renderEditor();
+    pickLoopAndCreate();
+    const items = lastContent().items;
+    expect(items[0].id).toBe('m1');
+    expect(items[1]).toMatchObject({ kind: 'fragment', operator: 'loop' });
+    expect(items[1].kind === 'fragment' && items[1].operands[0].items.map((item) => item.id)).toEqual(['m2', 'm3']);
+  });
 });
 
 describe('message type choice by letter', () => {
