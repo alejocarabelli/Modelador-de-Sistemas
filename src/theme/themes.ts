@@ -434,7 +434,7 @@ export const indigoLightTheme: DiagramTheme = {
     selectedBackground: '#E1E6F5',
     selectedText: '#2D3C73',
     feedbackBackground: '#1B2030',
-    projectTones: ['#3B4D8C', '#A0712A', '#53649E', '#8A5A12', '#6A79AB', '#B5843A', '#46578F'],
+    projectTones: ['#3B4D8C', '#3B4D8C', '#3B4D8C', '#3B4D8C', '#3B4D8C', '#3B4D8C', '#3B4D8C'],
   },
 };
 
@@ -529,7 +529,7 @@ export const indigoDarkTheme: DiagramTheme = {
     selectedBackground: '#232A45',
     selectedText: '#C9D1F5',
     feedbackBackground: '#2A2F40',
-    projectTones: ['#9AA9E6', '#D3A253', '#8494D6', '#E3B66A', '#AEBAEB', '#C9974A', '#7F8FD0'],
+    projectTones: ['#9AA9E6', '#9AA9E6', '#9AA9E6', '#9AA9E6', '#9AA9E6', '#9AA9E6', '#9AA9E6'],
   },
 };
 

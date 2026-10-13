@@ -90,6 +90,12 @@ describe('themes', () => {
     expect(disabled.familyId).toBe('neutral');
   });
 
+  it('gives every project card the same tone in Índigo y ámbar, with no amber', () => {
+    [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
+      expect(new Set(theme.ui.projectTones).size, theme.id).toBe(1);
+    });
+  });
+
   it('keeps participant text readable on Índigo y ámbar boxes', () => {
     [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
       expect(contrast(theme.sequence.text, theme.participants!.headerFill), theme.id).toBeGreaterThan(7);

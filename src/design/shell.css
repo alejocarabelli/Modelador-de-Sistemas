@@ -801,6 +801,19 @@
   padding: var(--space-3) var(--space-4);
 }
 
+/* Índigo y ámbar: every project shares one tone, so the cover gains depth
+   from a soft indigo-to-slate gradient and a light edge instead of colour. */
+.app-shell[data-palette='indigo'] .v2-project-card-cover {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 13px, color-mix(in srgb, var(--project-tone) 6%, transparent) 13px 14px),
+    linear-gradient(135deg, color-mix(in srgb, var(--project-tone) 16%, var(--panel-background)), color-mix(in srgb, var(--project-tone) 5%, var(--panel-background)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--panel-background) 70%, transparent);
+}
+
+.app-shell[data-palette='indigo'] .v2-project-card {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--project-tone) 10%, transparent);
+}
+
 .app-shell .v2-project-card-initials {
   color: var(--project-tone);
   font-family: var(--font-mono);
