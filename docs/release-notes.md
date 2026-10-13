@@ -24,6 +24,20 @@ Se instala solo para tu usuario, sin pedir permisos de administrador.
 
 Instalá la versión nueva encima de la anterior: tus proyectos se conservan. Desde esta versión, la app te avisa cuando hay una nueva (si tenés internet) y muestra su número abajo en la barra lateral y en la ayuda (tecla **?**).
 
+## Novedades de la 2.7.0
+
+### Paleta de colores
+
+- Nueva paleta **Índigo y ámbar**, más sobria y profesional: cajas e interfaz en azul acero, con ámbar para notas y condiciones. La paleta de siempre sigue disponible.
+- La primera vez que abrís la app elegís la paleta, y después la podés cambiar desde **Apariencia**. Es una preferencia global, junto a claro y oscuro.
+- Las tarjetas de proyecto comparten un solo tono, con portada en degradado.
+
+### Diagrama de secuencia
+
+- Modo teclado más ágil en diagramas grandes: **M** arranca junto al puntero, un clic en el lienzo vacío mueve el cursor, **⌘↑**/**⌘↓** (o Inicio y Fin) van al principio y al final, y **⇧←**/**⇧→** vuelven y rehacen el recorrido.
+- Cada línea de vida muestra un número (1–9, 0) para elegirla como origen o destino. **⌥ Enter** guarda el mensaje y deja el cursor en el origen.
+- Un loop nuevo ya no envuelve el mensaje que el modo teclado acababa de crear o resaltar.
+
 ## Novedades de la 2.6.0
 
 ### Archivos
