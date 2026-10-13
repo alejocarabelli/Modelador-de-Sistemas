@@ -32,6 +32,16 @@ export type SequenceKeyboardModeState = {
   guardFragmentId?: string;
   guardOperandId?: string;
   guardText: string;
+  /** Lines the origin came from, most recent last: ⇧← walks back through them. */
+  sourceBack: string[];
+  /** Lines left with ⇧←, so ⇧→ can redo the step. */
+  sourceForward: string[];
+  /** True while ← / → step along neighbours: a run of steps is one move back. */
+  sourceStepping: boolean;
+  /** The last destination each origin sent to, for ⇧→ while aiming. */
+  lastTargets: Record<string, string>;
+  /** The last destination used from any origin. */
+  lastTarget?: string;
 };
 
 export const sequenceKeyboardMessageTypes: SequenceMessageType[] = [
@@ -77,12 +87,17 @@ export const createInactiveSequenceKeyboardState = (): SequenceKeyboardModeState
   createSide: 1,
   fragmentOperator: 'alt',
   guardText: '',
+  sourceBack: [],
+  sourceForward: [],
+  sourceStepping: false,
+  lastTargets: {},
 });
 
 export type SequenceKeyboardModeAction =
-  | { type: 'activate'; slotIndex: number; sourceId: string }
+  | { type: 'activate'; slotIndex: number; sourceId: string; lastTargets?: Record<string, string>; lastTarget?: string }
   | { type: 'deactivate' }
-  | { type: 'navigate'; slotIndex?: number; sourceId?: string }
+  | { type: 'navigate'; slotIndex?: number; sourceId?: string; history?: 'jump' | 'step' }
+  | { type: 'source-history'; sourceId: string; sourceBack: string[]; sourceForward: string[] }
   | { type: 'begin'; messageType: SequenceMessageType; targetId?: string; returnCandidateIds?: string[]; preserveEdit?: boolean }
   | { type: 'set-route'; sourceId?: string; targetId?: string; messageType?: SequenceMessageType; returnCandidateIds?: string[]; returnCandidateIndex?: number; createSide?: -1 | 1 }
   | { type: 'set-message-type'; messageType: SequenceMessageType }
@@ -95,10 +110,77 @@ export type SequenceKeyboardModeAction =
   | { type: 'set-fragment-operator'; operator: SequenceFragmentOperator }
   | { type: 'open-guard'; fragmentId: string; operandId: string; text: string }
   | { type: 'set-guard'; text: string }
-  | { type: 'committed'; slotIndex: number; sourceId: string }
+  | { type: 'committed'; slotIndex: number; sourceId: string; usedTarget?: { sourceId: string; targetId: string } }
   | { type: 'back' };
 
 const signatureName = (text: string): string => text.split(/[(:]/)[0].trim();
+
+/**
+ * Moves the origin and keeps the trail ⇧← walks back. A jump (a number, a
+ * click, a saved message) is one step of the trail; a run of ← / → steps
+ * along the neighbours counts as one, so ⇧← skips the lines merely passed.
+ */
+const withSourceMove = (
+  state: SequenceKeyboardModeState,
+  sourceId: string | undefined,
+  history: 'jump' | 'step' | undefined,
+): Pick<SequenceKeyboardModeState, 'sourceBack' | 'sourceForward' | 'sourceStepping'> => {
+  const moved = sourceId !== undefined && sourceId !== state.sourceId && state.sourceId !== '';
+  if (!moved || history === undefined) {
+    return { sourceBack: state.sourceBack, sourceForward: state.sourceForward, sourceStepping: false };
+  }
+  const extendsRun = history === 'step' && state.sourceStepping;
+  return {
+    sourceBack: extendsRun ? state.sourceBack : [...state.sourceBack, state.sourceId].slice(-50),
+    sourceForward: extendsRun ? state.sourceForward : [],
+    sourceStepping: history === 'step',
+  };
+};
+
+/**
+ * ⇧← (direction -1) goes back to the line the origin came from; ⇧→ (1) redoes
+ * it. Lines that are not alive at the cursor are skipped and dropped.
+ */
+export const stepSequenceKeyboardSourceHistory = (
+  state: Pick<SequenceKeyboardModeState, 'sourceId' | 'sourceBack' | 'sourceForward'>,
+  direction: -1 | 1,
+  validIds: string[],
+): { sourceId: string; sourceBack: string[]; sourceForward: string[] } | undefined => {
+  const from = [...(direction === -1 ? state.sourceBack : state.sourceForward)];
+  const to = [...(direction === -1 ? state.sourceForward : state.sourceBack)];
+  while (from.length > 0) {
+    const candidate = from.pop()!;
+    if (candidate === state.sourceId || !validIds.includes(candidate)) continue;
+    to.push(state.sourceId);
+    return direction === -1
+      ? { sourceId: candidate, sourceBack: from, sourceForward: to }
+      : { sourceId: candidate, sourceBack: to, sourceForward: from };
+  }
+  return undefined;
+};
+
+/** The digit each lifeline answers to in keyboard mode: 1–9 left to right, then 0. */
+export const getSequenceKeyboardParticipantNumbers = (
+  participants: Array<{ id: string; x: number }>,
+): Map<string, string> => new Map(
+  [...participants]
+    .sort((left, right) => left.x - right.x)
+    .slice(0, 10)
+    .map((participant, index) => [participant.id, String((index + 1) % 10)]),
+);
+
+export const findSequenceKeyboardParticipantByDigit = (
+  participants: Array<{ id: string; x: number }>,
+  digit: string,
+): string | undefined => [...getSequenceKeyboardParticipantNumbers(participants)]
+  .find(([, number]) => number === digit)?.[0];
+
+/** The destination ⇧→ jumps to: the last one this origin used, else the last one used at all. */
+export const findSequenceKeyboardLastTarget = (
+  state: Pick<SequenceKeyboardModeState, 'sourceId' | 'lastTargets' | 'lastTarget'>,
+  validIds: string[],
+): string | undefined => [state.lastTargets[state.sourceId], state.lastTarget]
+  .find((id): id is string => id !== undefined && validIds.includes(id));
 
 export type KeyboardReturnCall = { id: string; sourceId: string };
 
@@ -162,12 +244,15 @@ export const sequenceKeyboardModeReducer = (
         slotIndex: action.slotIndex,
         sourceId: action.sourceId,
         targetId: action.sourceId,
+        lastTargets: action.lastTargets ?? {},
+        lastTarget: action.lastTarget,
       };
     case 'deactivate':
       return createInactiveSequenceKeyboardState();
     case 'navigate':
       return {
         ...state,
+        ...withSourceMove(state, action.sourceId, action.history),
         stage: 'navigate',
         slotIndex: action.slotIndex ?? state.slotIndex,
         sourceId: action.sourceId ?? state.sourceId,
@@ -266,13 +351,27 @@ export const sequenceKeyboardModeReducer = (
       };
     case 'set-guard':
       return { ...state, guardText: action.text };
+    case 'source-history':
+      return {
+        ...state,
+        sourceId: action.sourceId,
+        targetId: action.sourceId,
+        sourceBack: action.sourceBack,
+        sourceForward: action.sourceForward,
+        sourceStepping: false,
+      };
     case 'committed':
       return {
         ...createInactiveSequenceKeyboardState(),
+        ...withSourceMove(state, action.sourceId, 'jump'),
         stage: 'navigate',
         slotIndex: action.slotIndex,
         sourceId: action.sourceId,
         targetId: action.sourceId,
+        lastTargets: action.usedTarget
+          ? { ...state.lastTargets, [action.usedTarget.sourceId]: action.usedTarget.targetId }
+          : state.lastTargets,
+        lastTarget: action.usedTarget?.targetId ?? state.lastTarget,
       };
     case 'back':
       if (state.stage === 'participant') return { ...state, stage: 'navigate', text: '', operationMethodId: undefined };
@@ -431,6 +530,36 @@ export const buildSequenceKeyboardInsertionSlots = (
   return slots.sort((left, right) => left.y - right.y || left.containerName.localeCompare(right.containerName));
 };
 
+/**
+ * The slot under a point of the diagram: the closest by height, preferring a
+ * branch that horizontally contains the point over one beside it.
+ */
+export const findSequenceKeyboardSlotNearPoint = (
+  slots: SequenceKeyboardInsertionSlot[],
+  point: { x: number; y: number },
+): number => {
+  let best = -1;
+  let bestScore = Number.POSITIVE_INFINITY;
+  slots.forEach((slot, index) => {
+    const outside = slot.bounds !== undefined && (point.x < slot.bounds.x || point.x > slot.bounds.x + slot.bounds.width);
+    const score = Math.abs(slot.y - point.y) + (outside ? 60 : 0);
+    if (score < bestScore) {
+      bestScore = score;
+      best = index;
+    }
+  });
+  return Math.max(0, best);
+};
+
+export const findSequenceKeyboardParticipantNearX = (
+  participantIds: string[],
+  participantX: Map<string, number>,
+  x: number,
+): string | undefined => participantIds.reduce<string | undefined>((best, id) => {
+  if (best === undefined) return id;
+  return Math.abs((participantX.get(id) ?? 0) - x) < Math.abs((participantX.get(best) ?? 0) - x) ? id : best;
+}, undefined);
+
 export const findSequenceKeyboardSlotAfterItem = (
   slots: SequenceKeyboardInsertionSlot[],
   itemId: string,
@@ -537,21 +666,21 @@ export const findFragmentOperand = (
 
 export const getSequenceKeyboardInstruction = (state: SequenceKeyboardModeState): string => {
   if (state.stage === 'navigate') {
-    return '← → participante · ↑ ↓ momento · Enter crear · P participante · R retorno · F fragmento';
+    return shortcutLabel('← → participante · 1–9 ir a la línea · ⇧← línea anterior · ↑ ↓ momento · Enter crear · P participante · F fragmento');
   }
   if (state.stage === 'aim') {
     return state.messageType === 'create'
       ? '← → ubicación · S R C D tipo · Enter confirmar · Esc volver'
       : state.messageType === 'return'
         ? '← → quién llamó · S R C D tipo · Enter confirmar · Esc volver'
-        : '← → destino · S R C D tipo · Enter confirmar · Esc volver';
+        : shortcutLabel('← → destino · ⇧→ último destino · 1–9 línea · S R C D tipo · Enter confirmar · ⌥ Enter quedarse en el origen · Esc volver');
   }
   if (state.stage === 'typing') {
     return state.messageType === 'create'
       ? 'Escribí nombre : Clase · Enter crear · Esc volver'
       : state.messageType === 'return'
         ? 'Enter guardar retorno · Esc volver'
-        : shortcutLabel('Enter guardar (vacío: toma la sugerencia) · ⇧ Enter guardar + retorno · Esc volver');
+        : shortcutLabel('Enter guardar (vacío: toma la sugerencia) · ⇧ Enter guardar + retorno · ⌥ Enter guardar y quedarse · Esc volver');
   }
   if (state.stage === 'participant') {
     return 'Escribí instancia:Clase o :Clase · Enter crear · Esc cancelar';

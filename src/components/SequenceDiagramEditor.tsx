@@ -149,8 +149,13 @@ import {
   createInactiveSequenceKeyboardState,
   findCompatibleSequenceReturnCalls,
   findFragmentOperand,
+  findSequenceKeyboardLastTarget,
+  findSequenceKeyboardParticipantByDigit,
+  findSequenceKeyboardParticipantNearX,
   findSequenceKeyboardSlotAfterItem,
+  findSequenceKeyboardSlotNearPoint,
   getSequenceKeyboardInstruction,
+  getSequenceKeyboardParticipantNumbers,
   getSequenceParticipantIdsAliveAtSlot,
   parseSequenceCreatedParticipant,
   parseSequenceKeyboardSignature,
@@ -160,6 +165,7 @@ import {
   sequenceKeyboardCreateKinds,
   sequenceKeyboardFragmentOperators,
   sequenceKeyboardModeReducer,
+  stepSequenceKeyboardSourceHistory,
 } from '../utils/sequenceKeyboardMode';
 import {
   createSequenceParticipantFromLabel,
@@ -254,6 +260,9 @@ const fragmentLabels: Record<SequenceFragmentOperator, string> = {
 
 // El editor se desmonta al cambiar de pestaña: guardamos el modo rápido para no perder el mensaje a medio escribir.
 const keyboardModeMemory = new Map<string, ReturnType<typeof createInactiveSequenceKeyboardState>>();
+// Where the keyboard cursor was when the mode was last used, so M picks up
+// there instead of at the end of a long diagram.
+const keyboardExitMemory = new Map<string, { slotId: string; sourceId: string; lastTargets: Record<string, string>; lastTarget?: string }>();
 
 let inspectorCollapsedMemory = true;
 
@@ -480,6 +489,8 @@ export function SequenceDiagramEditor({
     if (keyboardMode.stage === 'off') keyboardModeMemory.delete(viewKey);
     else keyboardModeMemory.set(viewKey, keyboardMode);
   }, [keyboardMode, viewKey]);
+  // The last pointer position over the canvas, in screen coordinates.
+  const canvasPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const exportSvgRef = useRef<SVGSVGElement | null>(null);
   const getExportSvg = useCallback(() => exportSvgRef.current, []);
@@ -650,6 +661,16 @@ export function SequenceDiagramEditor({
     .filter((participant) => keyboardAliveParticipantIds.includes(participant.id))
     .sort((left, right) => left.x - right.x)
     .map((participant) => participant.id), [content.participants, keyboardAliveParticipantIds]);
+  const keyboardParticipantNumbers = useMemo(() => getSequenceKeyboardParticipantNumbers(content.participants), [content.participants]);
+  useEffect(() => {
+    if (keyboardMode.stage === 'off' || !keyboardSlot) return;
+    keyboardExitMemory.set(viewKey, {
+      slotId: keyboardSlot.id,
+      sourceId: keyboardMode.sourceId,
+      lastTargets: keyboardMode.lastTargets,
+      lastTarget: keyboardMode.lastTarget,
+    });
+  }, [keyboardMode.lastTarget, keyboardMode.lastTargets, keyboardMode.sourceId, keyboardMode.stage, keyboardSlot, viewKey]);
   // A sequence draws on a "Clases de secuencias" model only; a plain class
   // diagram (the domain model) stays out of it.
   const classDiagrams = project.artifacts.filter((candidate): candidate is ClassSequenceDiagramArtifact =>
@@ -777,23 +798,64 @@ export function SequenceDiagramEditor({
       setParticipantDraft({ text: '', kind: 'actor' });
       return;
     }
-    const selectedTimelineItem = selection?.kind === 'message' || selection?.kind === 'fragment'
-      ? findSequenceItem(content.items, selection.id)
+    // What the keyboard cursor merely highlighted is not a choice of the
+    // person: the mode picks up where it was left instead.
+    const chosen = isKeyboardFocusOnly ? null : selection;
+    const selectedTimelineItem = chosen?.kind === 'message' || chosen?.kind === 'fragment'
+      ? findSequenceItem(content.items, chosen.id)
       : undefined;
-    const slotIndex = selectedTimelineItem
-      ? findSequenceKeyboardSlotAfterItem(keyboardSlots, selectedTimelineItem.id)
-      : Math.max(0, keyboardSlots.length - 1);
     const sortedParticipants = [...content.participants].sort((left, right) => left.x - right.x);
-    const sourceId = selection?.kind === 'participant'
-      ? selection.id
+    const remembered = keyboardExitMemory.get(viewKey);
+    const allIds = sortedParticipants.map((participant) => participant.id);
+    // Without a selection the cursor starts where the person is looking: by
+    // the pointer, else where the mode was left if it is still on screen,
+    // else in the middle of what is visible. Never at the end on its own.
+    let slotIndex = Math.max(0, keyboardSlots.length - 1);
+    let lookedAtX: number | undefined;
+    const svgBox = svgRef.current?.getBoundingClientRect();
+    const scrollEl = scrollRef.current;
+    const toDiagram = (clientX: number, clientY: number) => svgBox && svgBox.width > 0 && svgBox.height > 0
+      ? { x: (clientX - svgBox.left) * (layout.width / svgBox.width), y: (clientY - svgBox.top) * (layout.height / svgBox.height) }
+      : undefined;
+    const viewBox = scrollEl?.getBoundingClientRect();
+    const pointer = canvasPointerRef.current ? toDiagram(canvasPointerRef.current.clientX, canvasPointerRef.current.clientY) : undefined;
+    const rememberedIndex = remembered ? keyboardSlots.findIndex((slot) => slot.id === remembered.slotId) : -1;
+    const isOnScreen = (y: number): boolean => {
+      if (!viewBox || !svgBox) return false;
+      const screenY = svgBox.top + y * (svgBox.height / layout.height);
+      return screenY >= viewBox.top + 24 && screenY <= viewBox.bottom - 24;
+    };
+    if (selectedTimelineItem) {
+      slotIndex = findSequenceKeyboardSlotAfterItem(keyboardSlots, selectedTimelineItem.id);
+    } else if (pointer && keyboardSlots.length > 0) {
+      slotIndex = findSequenceKeyboardSlotNearPoint(keyboardSlots, pointer);
+      lookedAtX = pointer.x;
+    } else if (rememberedIndex >= 0 && isOnScreen(keyboardSlots[rememberedIndex].y)) {
+      slotIndex = rememberedIndex;
+    } else if (viewBox && keyboardSlots.length > 0) {
+      const center = toDiagram(viewBox.left + viewBox.width / 2, viewBox.top + viewBox.height / 2);
+      if (center) {
+        slotIndex = findSequenceKeyboardSlotNearPoint(keyboardSlots, center);
+        lookedAtX = center.x;
+      }
+    }
+    const slot = keyboardSlots[slotIndex];
+    const aliveIds = slot ? getSequenceParticipantIdsAliveAtSlot(content, layout, slot) : allIds;
+    const candidates = allIds.filter((id) => aliveIds.includes(id));
+    const sourceId = chosen?.kind === 'participant'
+      ? chosen.id
       : selectedTimelineItem?.kind === 'message'
         ? selectedTimelineItem.targetId
-        : sortedParticipants[0]?.id ?? '';
+        : lookedAtX !== undefined
+          ? findSequenceKeyboardParticipantNearX(candidates.length > 0 ? candidates : allIds, layout.participantX, lookedAtX) ?? allIds[0] ?? ''
+          : remembered && rememberedIndex === slotIndex && allIds.includes(remembered.sourceId)
+            ? remembered.sourceId
+            : sortedParticipants[0]?.id ?? '';
     setQuickMessage(null);
     setParticipantDraft(null);
-    dispatchKeyboardMode({ type: 'activate', slotIndex, sourceId });
+    dispatchKeyboardMode({ type: 'activate', slotIndex, sourceId, lastTargets: remembered?.lastTargets, lastTarget: remembered?.lastTarget });
     window.requestAnimationFrame(() => svgRef.current?.focus());
-  }, [content.items, content.participants, keyboardSlots, selection, showFeedback]);
+  }, [content, isKeyboardFocusOnly, keyboardSlots, layout, selection, showFeedback, viewKey]);
 
   const commitKeyboardParticipant = useCallback((): void => {
     const participant = createSequenceParticipantFromLabel({
@@ -880,9 +942,11 @@ export function SequenceDiagramEditor({
     });
   }, [content, keyboardMode.sourceId, keyboardMode.targetId, keyboardParticipantIds, keyboardSlot, layout, showFeedback]);
 
-  const moveKeyboardSlot = useCallback((direction: -1 | 1, extendSelection = false): void => {
+  const moveKeyboardSlot = useCallback((direction: -1 | 1, extendSelection = false, toEnd = false): void => {
     if (!keyboardSlot || keyboardSlots.length === 0) return;
-    const nextIndex = Math.max(0, Math.min(keyboardSlots.length - 1, keyboardMode.slotIndex + direction));
+    const nextIndex = toEnd
+      ? (direction < 0 ? 0 : keyboardSlots.length - 1)
+      : Math.max(0, Math.min(keyboardSlots.length - 1, keyboardMode.slotIndex + direction));
     if (nextIndex === keyboardMode.slotIndex) return;
     const nextSlot = keyboardSlots[nextIndex];
     if (extendSelection) {
@@ -924,7 +988,7 @@ export function SequenceDiagramEditor({
     const nextId = moveCircular(keyboardParticipantIds, currentId, direction);
     if (!nextId) return;
     if (!target) {
-      dispatchKeyboardMode({ type: 'navigate', sourceId: nextId });
+      dispatchKeyboardMode({ type: 'navigate', sourceId: nextId, history: 'step' });
       return;
     }
 
@@ -943,6 +1007,18 @@ export function SequenceDiagramEditor({
     }
     if (Object.keys(route).length > 0) dispatchKeyboardMode({ type: 'set-route', ...route });
   }, [content, keyboardMode.messageType, keyboardMode.sourceId, keyboardMode.targetId, keyboardParticipantIds, keyboardSlot, layout, showFeedback]);
+
+  /** A click on the empty canvas while navigating puts the cursor there. */
+  const moveKeyboardCursorToPoint = useCallback((point: { x: number; y: number }): void => {
+    if (keyboardSlots.length === 0) return;
+    const slotIndex = findSequenceKeyboardSlotNearPoint(keyboardSlots, point);
+    const aliveIds = getSequenceParticipantIdsAliveAtSlot(content, layout, keyboardSlots[slotIndex]);
+    const candidates = content.participants
+      .filter((participant) => aliveIds.includes(participant.id))
+      .map((participant) => participant.id);
+    const sourceId = findSequenceKeyboardParticipantNearX(candidates, layout.participantX, point.x);
+    dispatchKeyboardMode({ type: 'navigate', slotIndex, sourceId, history: 'jump' });
+  }, [content, keyboardSlots, layout]);
 
   const openKeyboardEdit = useCallback((): void => {
     if (!keyboardSlot) return;
@@ -1073,7 +1149,7 @@ export function SequenceDiagramEditor({
     }
   }, [commit, content, isKeyboardFocusOnly, keepAnchoredNotesWithTimeline, keyboardMode.fragmentOperator, keyboardMode.sourceId, keyboardSlot, openKeyboardFragmentNameEditor, selectedTimelineIds, setSelectedTimelineIds, setSelection, showFeedback]);
 
-  const commitKeyboardMessage = useCallback((addAutomaticReturn = false): void => {
+  const commitKeyboardMessage = useCallback((addAutomaticReturn = false, stayAtSource = false): void => {
     if (!keyboardSlot || (keyboardMode.stage !== 'aim' && keyboardMode.stage !== 'typing')) return;
     if (keyboardMode.stage === 'aim' && keyboardMode.messageType !== 'destroy' && keyboardMode.messageType !== 'return') {
       dispatchKeyboardMode({ type: 'start-typing' });
@@ -1206,7 +1282,7 @@ export function SequenceDiagramEditor({
     const saved = commit(candidate);
     if (!saved) return;
 
-    const nextSource = addAutomaticReturn && keyboardMode.messageType === 'synchronous'
+    const nextSource = stayAtSource || (addAutomaticReturn && keyboardMode.messageType === 'synchronous')
       ? sourceId
       : keyboardMode.messageType === 'asynchronous' || keyboardMode.messageType === 'destroy'
         ? sourceId
@@ -1217,6 +1293,9 @@ export function SequenceDiagramEditor({
       type: 'committed',
       slotIndex: findSequenceKeyboardSlotAfterItem(nextSlots, selectionId),
       sourceId: nextSource,
+      usedTarget: keyboardMode.messageType === 'synchronous' || keyboardMode.messageType === 'asynchronous' || keyboardMode.messageType === 'destroy'
+        ? { sourceId, targetId }
+        : undefined,
     });
     showFeedback(addAutomaticReturn && keyboardMode.messageType === 'synchronous'
       ? 'Llamada y retorno creados.'
@@ -1263,14 +1342,38 @@ export function SequenceDiagramEditor({
       }
 
       if (keyboardMode.stage === 'navigate') {
+        if (((event.key === 'ArrowUp' || event.key === 'ArrowDown') && (event.metaKey || event.ctrlKey)) || event.key === 'Home' || event.key === 'End') {
+          event.preventDefault();
+          moveKeyboardSlot(event.key === 'ArrowUp' || event.key === 'Home' ? -1 : 1, false, true);
+          return;
+        }
         if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.altKey) {
           event.preventDefault();
           moveKeyboardSlot(event.key === 'ArrowUp' ? -1 : 1, event.shiftKey);
           return;
         }
+        if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault();
+          const direction = event.key === 'ArrowLeft' ? -1 : 1;
+          const step = stepSequenceKeyboardSourceHistory(keyboardMode, direction, keyboardParticipantIds);
+          if (step) dispatchKeyboardMode({ type: 'source-history', ...step });
+          else showFeedback(direction < 0 ? 'No hay una línea anterior a la que volver.' : 'No hay nada para rehacer.');
+          return;
+        }
         if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !event.altKey) {
           event.preventDefault();
           moveKeyboardParticipant(event.key === 'ArrowLeft' ? -1 : 1);
+          return;
+        }
+        if (/^[0-9]$/.test(event.key)) {
+          event.preventDefault();
+          const participantId = findSequenceKeyboardParticipantByDigit(content.participants, event.key);
+          if (!participantId) return;
+          if (!keyboardParticipantIds.includes(participantId)) {
+            showFeedback('Esa línea de vida no existe en este punto del diagrama.');
+            return;
+          }
+          dispatchKeyboardMode({ type: 'navigate', sourceId: participantId, history: 'jump' });
           return;
         }
         if (event.key === 'Enter') {
@@ -1336,6 +1439,35 @@ export function SequenceDiagramEditor({
       }
 
       if (keyboardMode.stage === 'aim') {
+        const choosesAmongLifelines = keyboardMode.messageType === 'synchronous' || keyboardMode.messageType === 'asynchronous' || keyboardMode.messageType === 'destroy';
+        if (event.key === 'ArrowRight' && event.shiftKey && choosesAmongLifelines) {
+          event.preventDefault();
+          const lastTarget = findSequenceKeyboardLastTarget(keyboardMode, keyboardParticipantIds);
+          if (lastTarget) dispatchKeyboardMode({ type: 'set-route', targetId: lastTarget });
+          else showFeedback('Todavía no hay un destino usado al que volver.');
+          return;
+        }
+        if (/^[0-9]$/.test(event.key) && keyboardMode.messageType !== 'create') {
+          event.preventDefault();
+          const participantId = findSequenceKeyboardParticipantByDigit(content.participants, event.key);
+          if (!participantId) return;
+          if (keyboardMode.messageType === 'return') {
+            const calls = keyboardSlot ? findCompatibleSequenceReturnCalls(content, layout, keyboardSlot, keyboardMode.sourceId) : [];
+            const callsToTarget = calls.filter((call) => call.sourceId === participantId);
+            if (callsToTarget.length === 0) {
+              showFeedback('Esa línea no tiene una llamada pendiente para retornar.');
+              return;
+            }
+            dispatchKeyboardMode({ type: 'set-route', targetId: participantId, returnCandidateIds: callsToTarget.map((call) => call.id), returnCandidateIndex: 0 });
+            return;
+          }
+          if (!keyboardParticipantIds.includes(participantId)) {
+            showFeedback('Esa línea de vida no existe en este punto del diagrama.');
+            return;
+          }
+          dispatchKeyboardMode({ type: 'set-route', targetId: participantId });
+          return;
+        }
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
           event.preventDefault();
           moveKeyboardParticipant(event.key === 'ArrowLeft' ? -1 : 1, true);
@@ -1377,7 +1509,7 @@ export function SequenceDiagramEditor({
         }
         if (event.key === 'Enter') {
           event.preventDefault();
-          commitKeyboardMessage(false);
+          commitKeyboardMessage(false, event.altKey);
           return;
         }
         if (event.key === 'Tab') {
@@ -5098,11 +5230,11 @@ export function SequenceDiagramEditor({
               selectedCount={selectedTimelineIds.length}
               onTextChange={(text) => dispatchKeyboardMode({ type: 'set-text', text })}
               onGuardChange={(text) => dispatchKeyboardMode({ type: 'set-guard', text })}
-              onSubmit={(addAutomaticReturn) => {
+              onSubmit={(addAutomaticReturn, stayAtSource) => {
                 if (keyboardMode.stage === 'participant') commitKeyboardParticipant();
                 else if (keyboardMode.stage === 'guard') commitKeyboardGuard();
                 else if (keyboardMode.stage === 'fragment') commitKeyboardFragment();
-                else commitKeyboardMessage(addAutomaticReturn);
+                else commitKeyboardMessage(addAutomaticReturn, stayAtSource);
               }}
               onBack={() => dispatchKeyboardMode({ type: 'back' })}
               onMethodSelect={(method) => dispatchKeyboardMode({
@@ -5177,7 +5309,15 @@ export function SequenceDiagramEditor({
               })}
             </div>
           ) : null}
-          <div className="sequence-canvas-scroll" data-editor-canvas="" ref={scrollRef} tabIndex={-1} onScroll={(event) => handleCanvasScroll(event.currentTarget)}>
+          <div
+            className="sequence-canvas-scroll"
+            data-editor-canvas=""
+            ref={scrollRef}
+            tabIndex={-1}
+            onScroll={(event) => handleCanvasScroll(event.currentTarget)}
+            onPointerMove={(event) => { canvasPointerRef.current = { clientX: event.clientX, clientY: event.clientY }; }}
+            onPointerLeave={() => { canvasPointerRef.current = null; }}
+          >
             <div className="sequence-canvas-scale" style={{ width: layout.width * zoom, height: layout.height * zoom }}>
               <div
                 style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: layout.width, height: layout.height, position: 'relative' }}
@@ -5221,6 +5361,8 @@ export function SequenceDiagramEditor({
                   onMarqueeSelect={handleMarqueeSelect}
                   insertionGuide={visibleInsertionGuide}
                   keyboardPreview={keyboardCanvasPreview}
+                  keyboardParticipantNumbers={keyboardMode.stage === 'navigate' || keyboardMode.stage === 'aim' ? keyboardParticipantNumbers : undefined}
+                  onBackgroundPoint={keyboardMode.stage === 'navigate' ? moveKeyboardCursorToPoint : undefined}
                   onNavigateToArtifact={onNavigateToArtifact}
                   onConnect={connectLifelines}
                   onEditMessage={editMessageOnCanvas}

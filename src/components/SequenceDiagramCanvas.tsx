@@ -95,6 +95,10 @@ type SequenceDiagramCanvasProps = {
     valid?: boolean;
     ghost?: { kind: Exclude<SequenceParticipantKind, 'actor'>; label: string };
   } | null;
+  /** Keyboard mode: the digit each lifeline answers to, shown on its header. */
+  keyboardParticipantNumbers?: Map<string, string>;
+  /** Keyboard mode: a click on the empty canvas, in diagram coordinates. */
+  onBackgroundPoint?: (point: { x: number; y: number }) => void;
   onNavigateToArtifact?: (artifactId: string) => void;
   onMarqueeSelect?: (timelineIds: string[], noteIds: string[]) => void;
   /** Export renders are deliberately non-interactive and hidden from AT. */
@@ -156,6 +160,8 @@ function SequenceDiagramCanvasImpl({
   insertionGuide,
   boundaryResizePreview,
   keyboardPreview,
+  keyboardParticipantNumbers,
+  onBackgroundPoint,
   onNavigateToArtifact,
   onMarqueeSelect,
   interactive = true,
@@ -1076,12 +1082,19 @@ function SequenceDiagramCanvasImpl({
       className="sequence-diagram-svg"
       data-sequence-export-root="true"
       height={layout.height}
-      onClick={() => {
+      onClick={(event) => {
         if (suppressClickAfterMarqueeRef.current) {
           suppressClickAfterMarqueeRef.current = false;
           return;
         }
         onSelect(null);
+        const box = svgElementRef.current?.getBoundingClientRect();
+        if (onBackgroundPoint && box && box.width > 0 && box.height > 0) {
+          onBackgroundPoint({
+            x: (event.clientX - box.left) * (layout.width / box.width),
+            y: (event.clientY - box.top) * (layout.height / box.height),
+          });
+        }
       }}
       onClickCapture={(event) => {
         // El clic que cierra un marquee no debe cambiar la selección.
@@ -1490,6 +1503,14 @@ function SequenceDiagramCanvasImpl({
                 </>
               )}
             </g>
+            {keyboardParticipantNumbers?.has(participant.id) ? (
+              <g data-export-control="true" className="sequence-keyboard-number" aria-hidden="true" pointerEvents="none">
+                <rect x={x + headerWidth / 2 - 9} y={headerY - 9} width="18" height="18" rx="4" fill={selectedStroke} />
+                <text x={x + headerWidth / 2} y={headerY + 4} fill={participantFill} fontSize="11" fontWeight="bold" textAnchor="middle">
+                  {keyboardParticipantNumbers.get(participant.id)}
+                </text>
+              </g>
+            ) : null}
           </g>
         );
       })}

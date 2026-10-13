@@ -109,7 +109,8 @@ export function SequenceKeyboardComposer({
   selectedCount: number;
   onTextChange: (text: string) => void;
   onGuardChange: (text: string) => void;
-  onSubmit: (addAutomaticReturn?: boolean) => void;
+  /** Shift+Enter adds the return; Option+Enter keeps the cursor on the origin. */
+  onSubmit: (addAutomaticReturn?: boolean, stayAtSource?: boolean) => void;
   onBack: () => void;
   onMethodSelect: (method: SequenceMethodOption) => void;
   onAddParticipant: () => void;
@@ -251,7 +252,7 @@ export function SequenceKeyboardComposer({
         (suggestions[Math.min(suggestionIndex, suggestions.length - 1)] ?? suggestions[0]).apply();
         return;
       }
-      onSubmit(event.shiftKey);
+      onSubmit(event.shiftKey, event.altKey);
     }
   };
 
