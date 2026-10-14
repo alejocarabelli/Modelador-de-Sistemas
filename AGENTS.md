@@ -20,7 +20,7 @@ Además de los modelos de Claude, el orquestador puede usar modelos de OpenAI v�
 
 ## Actualizar la app en la Mac del usuario
 
-Cuando el usuario pida instalar o actualizar la app en su Mac, pasarle este comando para la Terminal (compila `main` en su Mac y reemplaza la app en Aplicaciones):
+Cuando el usuario pida instalar o actualizar la app, preguntar lo mínimo: no ofrecer opciones ni pedir confirmaciones, y responder en un solo mensaje corto con este comando para la Terminal. El comando compila `main` en su Mac y reemplaza la app en Aplicaciones:
 
 ```bash
 cd ~/Modelador-de-Sistemas && git pull origin main && npm install && ./scripts/build-macos-app.sh
