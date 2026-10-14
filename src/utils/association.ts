@@ -52,7 +52,7 @@ const navigabilities: readonly AssociationNavigability[] = [
   'target-to-source',
   'bidirectional',
 ];
-const relationTypes: readonly AssociationRelationType[] = [
+export const ASSOCIATION_RELATION_TYPES: readonly AssociationRelationType[] = [
   'association',
   'generalization',
   'aggregation',
@@ -77,7 +77,7 @@ export const normalizeAssociationData = (data: AssociationDataInput | undefined)
   navigability: isOneOf(data?.navigability, navigabilities)
     ? data.navigability
     : DEFAULT_ASSOCIATION_DATA.navigability,
-  relationType: isOneOf(data?.relationType, relationTypes)
+  relationType: isOneOf(data?.relationType, ASSOCIATION_RELATION_TYPES)
     ? data.relationType
     : DEFAULT_ASSOCIATION_DATA.relationType,
   diamondEnd: isOneOf(data?.diamondEnd, diamondEnds) ? data.diamondEnd : DEFAULT_ASSOCIATION_DATA.diamondEnd,

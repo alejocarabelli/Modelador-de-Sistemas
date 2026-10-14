@@ -52,6 +52,7 @@ const SECTIONS: Array<{ title: string; shortcuts: Shortcut[] }> = [
     shortcuts: [
       ['Doble clic', 'Crear en el lugar (clase o caso de uso)'],
       ['⌫', 'Eliminar la selección'],
+      ['1 … 6', 'Clases: relación con la que se crean las conexiones nuevas (asociación, herencia, agregación, composición, dependencia, realización)'],
       ['⇧ arrastrar', 'Seleccionar un área'],
       ['⌘ clic', 'Sumar o quitar de la selección'],
       ['↵  Esc', 'Confirmar o cancelar al editar un nombre'],
