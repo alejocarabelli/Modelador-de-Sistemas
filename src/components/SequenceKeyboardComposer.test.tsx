@@ -18,7 +18,6 @@ const renderComposer = (state: ReturnType<typeof createInactiveSequenceKeyboardS
     targetName="Elegí un destino"
     position={{ left: '120px', top: '80px' }}
     methodOptions={[]}
-    completionData={{ classes: [], instanceNames: [] }}
     selectedCount={0}
     onTextChange={vi.fn()}
     onGuardChange={vi.fn()}

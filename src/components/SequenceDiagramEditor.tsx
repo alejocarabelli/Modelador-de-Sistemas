@@ -180,7 +180,7 @@ import { ToolbarHistory } from './ToolbarHistory';
 import { SequenceDiagramCanvas } from './SequenceDiagramCanvas';
 import { SequenceExportDialog } from './SequenceExportDialog';
 import { SequenceKeyboardComposer } from './SequenceKeyboardComposer';
-import { collectUsedConditionValues, methodInsertText, type SignatureCompletionData } from '../utils/sequenceSignatureCompletion';
+import { methodInsertText } from '../utils/sequenceSignatureText';
 import { SequenceMessageDialog } from './SequenceMessageDialog';
 import { firstMessageRoute, type QuickMessageDraft } from '../utils/sequenceMessageDialogCompatibility';
 import { DiagramReviewPanel } from './DiagramReviewPanel';
@@ -726,30 +726,6 @@ export function SequenceDiagramEditor({
   const keyboardMethodOptions: SequenceMethodOption[] = keyboardMessageModel
     ? getSequenceMethodOptions({ model: keyboardMessageModel, participants: content.participants, classDiagram: associatedClassDiagram })
     : [];
-  // What the quick field can complete: classes with their own attributes and
-  // association roles, the participants of this diagram and the condition
-  // values used in the project's earlier searches.
-  const keyboardCompletionData: SignatureCompletionData = (() => {
-    if (keyboardMode.stage !== 'typing') return { classes: [], instanceNames: [] };
-    const nodes = Array.isArray(associatedClassDiagram?.content?.nodes) ? associatedClassDiagram.content.nodes : [];
-    const edges = Array.isArray(associatedClassDiagram?.content?.edges) ? associatedClassDiagram.content.edges : [];
-    const classes = nodes.map((node) => ({
-      name: node.data.name,
-      attributes: (node.data.attributes ?? []).filter((attribute) => attribute.name).map((attribute) => ({ name: attribute.name, type: attribute.type })),
-      roles: edges.flatMap((edge) => {
-        if (edge.source === node.id && edge.data?.targetRole) return [edge.data.targetRole];
-        if (edge.target === node.id && edge.data?.sourceRole) return [edge.data.sourceRole];
-        return [];
-      }),
-    }));
-    return {
-      classes,
-      instanceNames: content.participants.map((participant) => participant.name).filter((name) => name.length > 0),
-      usedValues: collectUsedConditionValues(project.artifacts.flatMap((candidate) =>
-        candidate.type === 'sequence-diagram' ? [candidate.content.items] : [])),
-      returnType: keyboardMethodOptions.find((method) => method.id === keyboardMode.operationMethodId)?.returnType || undefined,
-    };
-  })();
   const flowOptions = getSequenceFlowOptions(flows, content.flowArtifactId);
   const selectedMessageReferenceStatus = selectedItem?.kind === 'message'
     ? getSequenceMessageReferenceStatus(selectedItem, methodOptions, flowOptions, content.flowArtifactId)
@@ -5226,7 +5202,6 @@ export function SequenceDiagramEditor({
               position={keyboardPopoverPosition}
               placement={keyboardPopoverPlacement}
               methodOptions={keyboardMethodOptions}
-              completionData={keyboardCompletionData}
               selectedCount={selectedTimelineIds.length}
               onTextChange={(text) => dispatchKeyboardMode({ type: 'set-text', text })}
               onGuardChange={(text) => dispatchKeyboardMode({ type: 'set-guard', text })}
