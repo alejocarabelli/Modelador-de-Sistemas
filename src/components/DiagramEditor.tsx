@@ -35,10 +35,12 @@ import {
   EyeOff,
   FileText,
   ImageDown,
+  Link2,
   Plus,
 } from 'lucide-react';
 import type {
   AssociationEdgeData,
+  AssociationRelationType,
   ClassAttribute,
   ClassDiagramArtifact,
   ClassDiagramEdge,
@@ -58,8 +60,13 @@ import { useGentleWheelZoom } from '../hooks/useGentleWheelZoom';
 import { getDiagramImageExportBounds } from '../utils/diagramImageExport';
 import { CANVAS_GRID_KEY, MULTI_SELECT_HINT_KEY, readCanvasGridEnabled, readUiPreference, writeUiPreference } from '../storage/uiPreferences';
 import { shortcutLabel } from '../utils/shortcutLabel';
-import { readAssociationLineStyle, writeAssociationLineStyle } from '../storage/associationPreferences';
-import { getAssociationMarker, normalizeAssociationData, normalizeAssociationEdge } from '../utils/association';
+import {
+  readAssociationLineStyle,
+  readAssociationRelationType,
+  writeAssociationLineStyle,
+  writeAssociationRelationType,
+} from '../storage/associationPreferences';
+import { ASSOCIATION_RELATION_TYPES, getAssociationMarker, normalizeAssociationData, normalizeAssociationEdge } from '../utils/association';
 import {
   oppositeConnectionSide,
   resolveAutomaticNoteHandles,
@@ -211,6 +218,7 @@ export function DiagramEditor({
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
   const setSelectedEdgeId = useCallback((id: string | null) => setSelectedEdgeIds(id === null ? [] : [id]), []);
   const [associationLineStyle, setAssociationLineStyle] = useState(readAssociationLineStyle);
+  const [defaultRelationType, setDefaultRelationType] = useState(readAssociationRelationType);
   const [isInspectorCollapsed, setIsInspectorCollapsed] = useState(
     () => readUiPreference(INSPECTOR_COLLAPSED_KEY) === 'true',
   );
@@ -457,12 +465,13 @@ export function DiagramEditor({
           type: 'association',
           data: normalizeAssociationData({
             navigability,
+            relationType: defaultRelationType,
             lineStyle: associationLineStyle,
             sourceSide: 'automatic',
             targetSide: 'automatic',
           }),
-          markerStart: getAssociationMarker(navigability, 'source', 'association'),
-          markerEnd: getAssociationMarker(navigability, 'target', 'association'),
+          markerStart: getAssociationMarker(navigability, 'source', defaultRelationType),
+          markerEnd: getAssociationMarker(navigability, 'target', defaultRelationType),
         },
         normalizedEdges,
       ) as ClassDiagramEdge[];
@@ -475,8 +484,13 @@ export function DiagramEditor({
       }
       setConnectionSourceNodeId(null);
     },
-    [associationLineStyle, normalizedEdges, updateEdges, setSelectedEdgeId, setSelectedNodeId],
+    [associationLineStyle, defaultRelationType, normalizedEdges, updateEdges, setSelectedEdgeId, setSelectedNodeId],
   );
+
+  const chooseDefaultRelationType = useCallback((relationType: AssociationRelationType): void => {
+    setDefaultRelationType(relationType);
+    writeAssociationRelationType(relationType);
+  }, []);
 
   // Without an explicit point (toolbar, empty-state card), the class lands in
   // the free slot nearest the middle of what the person is looking at.
@@ -1367,6 +1381,34 @@ export function DiagramEditor({
     [],
   );
 
+  // 1…6 pick the relation new connections start as, in the order of the Relación menu.
+  useEffect(() => {
+    const handleRelationKey = (event: globalThis.KeyboardEvent): void => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+        return;
+      }
+
+      const relationType = ASSOCIATION_RELATION_TYPES[Number(event.key) - 1];
+
+      if (relationType === undefined || isNotebookEvent(event) || isEditableElement(document.activeElement)) {
+        return;
+      }
+
+      if (document.querySelector('.modal-backdrop, [aria-modal="true"], dialog[open]') !== null) {
+        return;
+      }
+
+      event.preventDefault();
+      chooseDefaultRelationType(relationType);
+    };
+
+    document.addEventListener('keydown', handleRelationKey);
+
+    return () => {
+      document.removeEventListener('keydown', handleRelationKey);
+    };
+  }, [chooseDefaultRelationType]);
+
   useEffect(() => {
     const handleDeleteKey = (event: globalThis.KeyboardEvent): void => {
       if (event.key !== 'Delete' && event.key !== 'Backspace') {
@@ -1559,6 +1601,24 @@ export function DiagramEditor({
                 addClassNode();
               }}
             />
+            <ToolMenu
+              icon={Link2}
+              label={`Relación: ${ASSOCIATION_RELATION_LABELS[defaultRelationType]}`}
+              title="Relación con la que se crean las conexiones nuevas (teclas 1 a 6)"
+              align="start"
+            >
+              <MenuLabel>Al conectar dos clases, crear</MenuLabel>
+              {ASSOCIATION_RELATION_TYPES.map((relationType, index) => (
+                <MenuItem
+                  key={relationType}
+                  checked={relationType === defaultRelationType}
+                  shortcut={String(index + 1)}
+                  onSelect={() => chooseDefaultRelationType(relationType)}
+                >
+                  {ASSOCIATION_RELATION_LABELS[relationType]}
+                </MenuItem>
+              ))}
+            </ToolMenu>
             <DiagramSelectionTools
               count={activeSelectedIds.length}
               onArrange={arrangeSelection}
