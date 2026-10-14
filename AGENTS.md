@@ -17,3 +17,14 @@ Además de los modelos de Claude, el orquestador puede usar modelos de OpenAI v�
 - Lo que haga un worker de GPT se revisa igual que el de cualquier worker. Diseño, commits, changelog y releases quedan en el orquestador.
 - Si el script responde SKIP (no alcanza el límite), se sigue sin GPT y se avisa en una línea.
 <!-- skill-gpt:end -->
+
+## Actualizar la app en la Mac del usuario
+
+Cuando el usuario pida instalar o actualizar la app, preguntar lo mínimo: no ofrecer opciones ni pedir confirmaciones, y responder en un solo mensaje corto con este comando para la Terminal. El comando compila `main` en su Mac y reemplaza la app en Aplicaciones:
+
+```bash
+cd ~/Modelador-de-Sistemas && git pull origin main && npm install && ./scripts/build-macos-app.sh
+```
+
+- No mandarlo a bajar compilaciones de Actions con `gh` o `ditto`: piden cuenta y permisos de macOS, y la app bajada queda en cuarentena.
+- Una sesión en la nube no puede instalar nada en su Mac: darle el comando, no intentar hacerlo.
