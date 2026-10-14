@@ -59,6 +59,22 @@ const SECTIONS: Array<{ title: string; shortcuts: Shortcut[] }> = [
     ],
   },
   {
+    title: 'Clases · modo teclado',
+    shortcuts: [
+      ['M', 'Entrar o salir del modo teclado'],
+      ['Esc', 'Volver un paso'],
+      ['←  ↑  →  ↓', 'Ir a la clase en esa dirección (o elegir el destino de la relación)'],
+      ['/', 'Buscar una clase por nombre'],
+      ['A  O', 'Agregar atributos u operaciones; ↵ vacío termina'],
+      ['↵  R', 'Relacionar con otra clase'],
+      ['1 … 6', 'Tipo de relación, el mismo del menú Relación'],
+      ['⇥', 'Nombre y multiplicidades de la relación (↑ ↓ las recorren)'],
+      ['⌥↵', 'Crear la relación y quedarse en el origen'],
+      ['N', 'Clase nueva al lado (las flechas eligen dónde)'],
+      ['T', 'Clases de secuencias: traer lo que piden las secuencias, de a una cosa (X saltea)'],
+    ],
+  },
+  {
     title: 'Diagrama de secuencia',
     shortcuts: [
       ['M', 'Entrar o salir del modo teclado'],

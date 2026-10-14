@@ -453,3 +453,64 @@ export const findSequenceMessagesMissingInModel = (sequence: SequenceDiagramCont
   }
   return { messageIds, participantIds };
 };
+
+/** A message between two classes that the model does not relate yet. */
+export type SequenceRelationSuggestion = {
+  key: string;
+  sourceClassName: string;
+  targetClassName: string;
+  /** The first message that asks for it, as the sequence shows it: `getNroTramite()`. */
+  message: string;
+};
+
+/**
+ * One suggestion per pair of classes that exchange a call, a signal or a
+ * creation in the sequences but have no relation of any kind in the model.
+ * A message only proves that one class uses the other, so the pair is
+ * suggested once (the first message decides the direction) and whether it
+ * is a dependency or something stronger is left to the person.
+ */
+export const planSequenceRelationSuggestions = (
+  classContent: ClassDiagramContent,
+  sequences: SequenceDiagramContent[],
+): SequenceRelationSuggestion[] => {
+  const nodeNames = new Map(classContent.nodes.map((node) => [node.id, normalizeKey(node.data.name)]));
+  const pairKey = (a: string, b: string): string => [a, b].sort().join('\u0000');
+  const related = new Set(classContent.edges.flatMap((edge) => {
+    const source = nodeNames.get(edge.source);
+    const target = nodeNames.get(edge.target);
+    return source && target ? [pairKey(source, target)] : [];
+  }));
+  const seen = new Set<string>();
+  const suggestions: SequenceRelationSuggestion[] = [];
+
+  for (const sequence of sequences) {
+    const participantClass = new Map<string, string>();
+    for (const participant of sequence.participants) {
+      if (participant.kind === 'actor') continue;
+      const className = resolveParticipantClassNode(participant, classContent)?.data.name
+        ?? participantClassName(participant.classifierName ?? '', participant.name ?? '');
+      if (className.length > 0) participantClass.set(participant.id, className);
+    }
+    for (const { item } of flattenSequenceItems(sequence.items)) {
+      if (item.kind !== 'message' || item.type === 'return' || item.type === 'destroy') continue;
+      const source = participantClass.get(item.sourceId);
+      const target = participantClass.get(item.targetId);
+      if (source === undefined || target === undefined) continue;
+      const sourceKey = normalizeKey(source);
+      const targetKey = normalizeKey(target);
+      const pair = pairKey(sourceKey, targetKey);
+      if (sourceKey === targetKey || related.has(pair) || seen.has(pair)) continue;
+      seen.add(pair);
+      const name = item.name.trim();
+      suggestions.push({
+        key: `relation:${sourceKey}:${targetKey}`,
+        sourceClassName: source,
+        targetClassName: target,
+        message: name.length === 0 ? 'un mensaje' : `${name}(${item.arguments.trim()})`,
+      });
+    }
+  }
+
+  return suggestions;
+};

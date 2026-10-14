@@ -84,6 +84,8 @@ import { useArtifactViewport } from '../hooks/useArtifactViewMemory';
 import { ToolbarHistory } from './ToolbarHistory';
 import type { DiagramSaveStatus } from '../hooks/useProjects';
 import { DEFAULT_CLASS_SIZE, findFreeClassPosition } from '../utils/classPlacement';
+import { ClassKeyboardOverlay } from './ClassKeyboardOverlay';
+import { useClassKeyboardMode, type ClassKeyboardImport } from '../hooks/useClassKeyboardMode';
 
 type DiagramEditorProps = {
   artifact: ClassDiagramArtifact;
@@ -98,6 +100,8 @@ type DiagramEditorProps = {
   revealRequest?: { key: number; nodeIds: string[] } | null;
   /** Replaces the default card shown on an empty canvas, for editors that explain their own empty state. */
   emptyState?: ReactNode;
+  /** What T brings in keyboard mode; only Clases de secuencias offers it. */
+  keyboardImport?: ClassKeyboardImport;
   theme: DiagramTheme;
   onChangeContent: (content: DiagramContent, options?: ContentChangeOptions) => void;
   onRedo: () => void;
@@ -202,6 +206,7 @@ export function DiagramEditor({
   externalFeedback = null,
   revealRequest = null,
   emptyState,
+  keyboardImport,
   theme,
   onChangeContent,
   onRedo,
@@ -239,6 +244,7 @@ export function DiagramEditor({
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [connectionSourceNodeId, setConnectionSourceNodeId] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const editorRootRef = useRef<HTMLElement | null>(null);
   useGentleWheelZoom(canvasRef, reactFlowInstance);
   const toolbarRef = useRef<HTMLElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -536,6 +542,31 @@ export function DiagramEditor({
       input?.select();
     }, 50);
   };
+
+  const selectKeyboardClass = useCallback((nodeId: string | null): void => {
+    setSelectedNodeId(nodeId);
+    setSelectedEdgeId(null);
+    setSelectedNoteNodeId(null);
+  }, [setSelectedEdgeId, setSelectedNodeId]);
+
+  const classKeyboard = useClassKeyboardMode({
+    nodes,
+    edges: normalizedEdges,
+    nodeSizes,
+    reactFlowInstance,
+    canvasRef,
+    editorRootRef,
+    selectedNodeId,
+    relationType: defaultRelationType,
+    lineStyle: associationLineStyle,
+    keyboardImport,
+    onChangeContent,
+    selectClass: selectKeyboardClass,
+    chooseRelationType: chooseDefaultRelationType,
+    showFeedback,
+    defaultClassPosition: nextClassPosition,
+  });
+  const keyboardTargetId = classKeyboard.targetId;
 
   const renameClassById = useCallback((nodeId: string, name: string): void => {
     updateNodes(nodes.map((node) => (node.id === nodeId ? { ...node, data: { ...node.data, name } } : node)));
@@ -1178,6 +1209,7 @@ export function DiagramEditor({
         return {
           ...node,
           ...measuredDimensions,
+          className: node.id === keyboardTargetId ? 'class-keyboard-target' : undefined,
           selected: selectedNodeIds.includes(node.id) && selectedNoteNodeId === null,
           data: {
             ...node.data,
@@ -1258,6 +1290,7 @@ export function DiagramEditor({
     },
     [
       nodes,
+      keyboardTargetId,
       connectionSourceNodeId,
       attributeEditingRequest,
       createAttributeByNodeId,
@@ -1572,7 +1605,7 @@ export function DiagramEditor({
   }, []);
 
   return (
-    <main className="diagram-editor class-diagram-editor">
+    <main className="diagram-editor class-diagram-editor" ref={editorRootRef}>
       <EditorToolbar
         toolbarRef={toolbarRef}
         start={(
@@ -1754,6 +1787,7 @@ export function DiagramEditor({
             }}
             onEdgeContextMenu={(event) => event.stopPropagation()}
             onNodeClick={(event, node) => {
+              if (classKeyboard.handleClassClick(node.id)) return;
               const noteClassNodeId = getClassNodeIdFromNoteId(node.id);
               const classNodeId = noteClassNodeId ?? node.id;
 
@@ -1816,6 +1850,7 @@ export function DiagramEditor({
                 />
               </>
             ) : null}
+            {classKeyboard.active ? <ClassKeyboardOverlay {...classKeyboard.overlayProps} /> : null}
             {renderedNodes.length === 0 ? (emptyState ?? (
               <CanvasStartCard
                 title="Empezá por una clase"
