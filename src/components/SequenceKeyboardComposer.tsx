@@ -2,12 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import type { SequenceFragmentOperator, SequenceMessageType } from '../types/diagram';
 import type { SequenceMethodOption } from '../utils/sequenceMessageEditing';
 import type { SequenceKeyboardModeState } from '../utils/sequenceKeyboardMode';
-import {
-  applySignatureCompletion,
-  getSignatureCompletion,
-  normalizeSignatureQuotes,
-  type SignatureCompletionData,
-} from '../utils/sequenceSignatureCompletion';
+import { normalizeSignatureQuotes } from '../utils/sequenceSignatureText';
 import { getSequenceKeyboardInstruction, noPendingCallFeedback, sequenceKeyboardMessageTypes } from '../utils/sequenceKeyboardMode';
 
 const typeWords: Record<SequenceMessageType, string> = {
@@ -85,7 +80,6 @@ export function SequenceKeyboardComposer({
   position,
   placement = 'above',
   methodOptions,
-  completionData,
   selectedCount,
   onTextChange,
   onGuardChange,
@@ -105,7 +99,6 @@ export function SequenceKeyboardComposer({
   position: Pick<CSSProperties, 'left' | 'top'>;
   placement?: 'above' | 'below';
   methodOptions: SequenceMethodOption[];
-  completionData: SignatureCompletionData;
   selectedCount: number;
   onTextChange: (text: string) => void;
   onGuardChange: (text: string) => void;
@@ -158,50 +151,19 @@ export function SequenceKeyboardComposer({
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   // Arrow keys mean "I am choosing a suggestion": Enter then takes it.
   const [browsedSuggestions, setBrowsedSuggestions] = useState(false);
-  const [caret, setCaret] = useState(0);
-  const caretToRestore = useRef<number | null>(null);
-  // Inside the signature's parentheses the field is quote-aware: classes,
-  // attributes, operators and participants depending on where the caret is.
-  const completion = useMemo(
-    () => state.stage === 'typing' && state.messageType !== 'create'
-      ? getSignatureCompletion(state.text, Math.min(caret, state.text.length), completionData)
-      : null,
-    [caret, completionData, state.messageType, state.stage, state.text],
-  );
-  const editingSignature = completion !== null || (state.stage === 'typing' && state.text.includes('('));
+  const editingSignature = state.stage === 'typing' && state.text.includes('(');
   const methodSuggestions = useMemo(() => {
     if (editingSignature) return [];
     const query = state.text.trim().toLocaleLowerCase().split(/[(:]/)[0];
     if (!query) return methodOptions.slice(0, 5);
     return methodOptions.filter((method) => `${method.name} ${method.label}`.toLocaleLowerCase().includes(query)).slice(0, 5);
   }, [editingSignature, methodOptions, state.text]);
-  const suggestions: Array<{ id: string; title: string; detail: string; apply: () => void }> = completion
-    ? completion.options.map((option) => ({
-        id: option.id,
-        title: option.text,
-        detail: option.label,
-        apply: () => {
-          const applied = applySignatureCompletion(state.text, completion, option);
-          caretToRestore.current = applied.caret;
-          setSuggestionIndex(0);
-          setBrowsedSuggestions(false);
-          onTextChange(applied.text);
-        },
-      }))
-    : methodSuggestions.map((method) => ({
-        id: method.id,
-        title: methodText(method),
-        detail: method.label,
-        apply: () => onMethodSelect(method),
-      }));
-
-  useLayoutEffect(() => {
-    const target = caretToRestore.current;
-    if (target === null) return;
-    caretToRestore.current = null;
-    inputRef.current?.setSelectionRange(target, target);
-    setCaret(target);
-  }, [state.text]);
+  const suggestions: Array<{ id: string; title: string; detail: string; apply: () => void }> = methodSuggestions.map((method) => ({
+    id: method.id,
+    title: methodText(method),
+    detail: method.label,
+    apply: () => onMethodSelect(method),
+  }));
 
   useEffect(() => {
     if ((state.stage === 'typing' && state.messageType !== 'return') || state.stage === 'guard' || state.stage === 'participant') {
@@ -361,10 +323,8 @@ export function SequenceKeyboardComposer({
                     const clean = normalizeSignatureQuotes(input.value);
                     setSuggestionIndex(0);
                     setBrowsedSuggestions(false);
-                    setCaret(input.selectionStart ?? clean.length);
                     onTextChange(clean);
                   }}
-                  onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? event.currentTarget.value.length)}
                   onKeyDown={handleTextKeyDown}
                 />
               </label>
