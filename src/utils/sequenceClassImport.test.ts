@@ -8,7 +8,7 @@ import type {
 } from '../types/diagram';
 import { findFreeClassPosition } from './classPlacement';
 import { createEmptySequenceDiagramContent, createSequenceFragment, createSequenceMessage } from './sequenceDiagram';
-import { importChangesModel, importClassesFromSequences, resolveMessageOperation } from './sequenceClassImport';
+import { importChangesModel, importClassesFromSequences, planSequenceRelationSuggestions, resolveMessageOperation } from './sequenceClassImport';
 
 const participant = (id: string, kind: SequenceParticipantKind, name: string, classifierName: string, x: number): SequenceParticipant => ({
   id, kind, name, classifierName, x,
@@ -229,5 +229,52 @@ describe('completing parameters of an existing method', () => {
     const withParams = [{ id: 'm', visibility: '+' as const, name: 'buscar', parameters: 'nro', returnType: '' }];
     expect(resolveMessageOperation(withParams, message)).toMatchObject({ existing: { id: 'm' }, parametersToAdd: undefined });
     expect(resolveMessageOperation([], message)).toMatchObject({ existing: undefined, operation: { name: 'buscar', parameters: 'id: Integer' } });
+  });
+});
+
+describe('planSequenceRelationSuggestions', () => {
+  const participants = [
+    participant('u', 'actor', 'Consultor', '', 0),
+    participant('p', 'boundary', '', ':PantallaCambioEstado', 200),
+    participant('g', 'control', '', ':GestorCambioEstado', 400),
+    participant('t', 'entity', 'actual', 'Tramite', 600),
+    participant('e', 'entity', '', ':EstadoTramite', 800),
+  ];
+  const loop = createSequenceFragment('loop');
+  loop.operands[0].items = [call('g', 't', 'getNroTramite'), call('t', 'e', 'esActual')];
+  const cambioEstado = sequence({
+    participants,
+    items: [
+      call('u', 'p', 'opcionCambiarEstado'),
+      call('p', 'g', 'nuevoCambioEstado'),
+      loop,
+      { ...createSequenceMessage('return', 't', 'g'), name: 'nro' },
+      call('g', 'p', 'mostrarTramites', { arguments: 'tramites' }),
+    ],
+  });
+
+  it('suggests each pair of classes that exchange a message and the model does not relate, once', () => {
+    const model = {
+      nodes: [classNode('n-t', 'Tramite', 0, 0), classNode('n-e', 'EstadoTramite', 400, 0)],
+      edges: [{ id: 'r', source: 'n-t', target: 'n-e', type: 'association' }],
+    };
+
+    expect(planSequenceRelationSuggestions(model, [cambioEstado])).toEqual([
+      { key: 'relation:pantallacambioestado:gestorcambioestado', sourceClassName: 'PantallaCambioEstado', targetClassName: 'GestorCambioEstado', message: 'nuevoCambioEstado()' },
+      { key: 'relation:gestorcambioestado:tramite', sourceClassName: 'GestorCambioEstado', targetClassName: 'Tramite', message: 'getNroTramite()' },
+    ]);
+  });
+
+  it('leaves out a pair the model already relates in either direction, actors and returns', () => {
+    const model = {
+      nodes: [classNode('n-p', 'PantallaCambioEstado', 0, 0), classNode('n-g', 'GestorCambioEstado', 400, 0), classNode('n-t', 'Tramite', 800, 0), classNode('n-e', 'EstadoTramite', 0, 400)],
+      edges: [
+        { id: 'a', source: 'n-g', target: 'n-p', type: 'association' },
+        { id: 'b', source: 'n-t', target: 'n-g', type: 'association' },
+        { id: 'c', source: 'n-e', target: 'n-t', type: 'association' },
+      ],
+    };
+
+    expect(planSequenceRelationSuggestions(model, [cambioEstado])).toEqual([]);
   });
 });

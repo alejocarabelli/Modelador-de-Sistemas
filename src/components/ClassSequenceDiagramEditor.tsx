@@ -10,7 +10,8 @@ import type {
   DiagramContent,
   SequenceDiagramArtifact,
 } from '../types/diagram';
-import { importClassesFromSequences, planSequenceClassImport } from '../utils/sequenceClassImport';
+import { importClassesFromSequences, planSequenceClassImport, planSequenceRelationSuggestions } from '../utils/sequenceClassImport';
+import type { ClassKeyboardImportItem } from '../utils/classKeyboardMode';
 import { findUnlinkedSequences } from '../utils/sequenceModelLink';
 import { CanvasStartCard } from './CanvasStartCard';
 import { DiagramEditor } from './DiagramEditor';
@@ -123,7 +124,7 @@ export function ClassSequenceDiagramEditor({
     return () => window.clearTimeout(timeout);
   }, [importFeedback]);
 
-  const importFromSequences = useCallback((sources: SequenceDiagramArtifact[], keys?: ReadonlySet<string>): void => {
+  const importFromSequences = useCallback((sources: SequenceDiagramArtifact[], keys?: ReadonlySet<string>, reveal = true): void => {
     const { content, summary } = importClassesFromSequences(
       { nodes: artifact.content.nodes, edges: artifact.content.edges },
       sources.map((source) => source.content),
@@ -143,7 +144,8 @@ export function ClassSequenceDiagramEditor({
     const previousNodes = new Map(artifact.content.nodes.map((node) => [node.id, node]));
     const created = content.nodes.filter((node) => !previousNodes.has(node.id)).map((node) => node.id);
     const updated = content.nodes.filter((node) => previousNodes.has(node.id) && previousNodes.get(node.id) !== node).map((node) => node.id);
-    setRevealRequest({ key: Date.now(), nodeIds: created.length > 0 ? created : updated });
+    // The keyboard mode moves its own cursor; framing each class would make the canvas jump on every Enter.
+    if (reveal) setRevealRequest({ key: Date.now(), nodeIds: created.length > 0 ? created : updated });
 
     const parts = [
       summary.createdClasses > 0 ? `${summary.createdClasses} ${summary.createdClasses === 1 ? 'clase nueva' : 'clases nuevas'}` : null,
@@ -154,6 +156,33 @@ export function ClassSequenceDiagramEditor({
     const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}` : parts[0];
     setImportFeedback(`Importado: ${list}.`);
   }, [artifact.content, onChangeContent]);
+
+  // T in keyboard mode walks the same novelties as the menu, one class at a
+  // time, then the relations the messages ask for and the model lacks.
+  const relationSuggestions = useMemo(
+    () => planSequenceRelationSuggestions(artifact.content, linkedSequenceDiagrams.map((sequence) => sequence.content)),
+    [artifact.content, linkedSequenceDiagrams],
+  );
+  const keyboardImport = useMemo(() => {
+    const groups = new Map<string, typeof pending>();
+    for (const novelty of pending) groups.set(novelty.className, [...(groups.get(novelty.className) ?? []), novelty]);
+    const items: ClassKeyboardImportItem[] = [...groups].map(([className, novelties]) => ({
+      key: `class:${className.trim().toLocaleLowerCase()}`,
+      kind: novelties.some((novelty) => novelty.type === 'class') ? 'class' as const : 'members' as const,
+      className,
+      noveltyKeys: novelties.map((novelty) => novelty.key),
+      members: novelties.filter((novelty) => novelty.type !== 'class').map((novelty) => novelty.type === 'method'
+        ? `${novelty.elementName}(${novelty.parameters ?? ''})${novelty.returnType ? `: ${novelty.returnType}` : ''}`
+        : `${novelty.elementName}${novelty.attributeType ? `: ${novelty.attributeType}` : ''}`),
+    }));
+    for (const suggestion of relationSuggestions) {
+      items.push({ key: suggestion.key, kind: 'relation', sourceClassName: suggestion.sourceClassName, targetClassName: suggestion.targetClassName, message: suggestion.message });
+    }
+    return {
+      items,
+      onImportClass: (noveltyKeys: string[]) => importFromSequences(linkedSequenceDiagrams, new Set(noveltyKeys), false),
+    };
+  }, [importFromSequences, linkedSequenceDiagrams, pending, relationSuggestions]);
 
   const displayArtifact: ClassDiagramArtifact = useMemo(() => ({
     id: artifact.id,
@@ -254,6 +283,7 @@ export function ClassSequenceDiagramEditor({
       externalFeedback={importFeedback}
       revealRequest={revealRequest}
       emptyState={renderEmptyState()}
+      keyboardImport={keyboardImport}
       onChangeContent={handleChangeContent}
       onRedo={onRedo}
       onUndo={onUndo}

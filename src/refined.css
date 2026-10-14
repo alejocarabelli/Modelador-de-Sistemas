@@ -4205,3 +4205,26 @@ button.sequence-keyboard-key:hover { border-color: var(--accent); }
   color: var(--panel-text);
 }
 .sequence-export-preview-failed { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 8px; color: #50657a; font-size: 11px; text-align: center; }
+
+/* Clases · modo teclado: the sequence guide and composer, over the React Flow canvas. */
+.class-keyboard-guide.sequence-canvas-guide.is-keyboard-active { position: absolute; z-index: 16; top: 0; left: 0; right: 0; width: auto; }
+.class-keyboard-popover { z-index: 17; }
+.class-keyboard-popover.stage-navigate { max-width: none; }
+.class-keyboard-types { grid-template-columns: repeat(3, 1fr); }
+.class-keyboard-preview { position: absolute; inset: 0; z-index: 15; width: 100%; height: 100%; overflow: visible; pointer-events: none; color: var(--note-connection-line, #a0712a); }
+.class-keyboard-preview line { stroke: currentColor; stroke-width: 2; stroke-dasharray: 6 4; }
+.class-keyboard-ghost { position: absolute; z-index: 14; display: grid; place-items: start center; padding-top: 9px; border: 1.5px dashed var(--accent); border-radius: var(--class-radius, 4px); background: color-mix(in srgb, var(--accent-soft) 75%, transparent); color: var(--accent-strong); font-size: 12px; font-weight: 600; pointer-events: none; }
+.react-flow__node.class-keyboard-target .class-node {
+  border-color: var(--note-connection-line, #a0712a);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--note-connection-line, #a0712a) 32%, transparent), var(--class-shadow);
+}
+.class-keyboard-warning { display: block; color: var(--status-warning-text, #8a5a12); font-size: 11px; line-height: 1.4; }
+.class-keyboard-details { display: grid; grid-template-columns: 1fr 1.3fr 1fr; gap: 8px; }
+.class-keyboard-details label > span { overflow: hidden; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.class-keyboard-popover .class-keyboard-details input { min-height: 32px; padding: 6px 8px; font-size: 12px; }
+.class-keyboard-import { display: grid; gap: 4px; }
+.class-keyboard-import strong { font-size: 12.5px; }
+.class-keyboard-import small { color: var(--panel-muted-text); font-size: 11px; line-height: 1.4; }
+.class-keyboard-import ul { margin: 0; padding-left: 18px; font-family: var(--font-mono, monospace); font-size: 11px; }
+.sequence-keyboard-suggestions button.class-keyboard-create strong { color: var(--accent-strong); }
+.class-keyboard-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
