@@ -24,11 +24,27 @@ Se instala solo para tu usuario, sin pedir permisos de administrador.
 
 Instalá la versión nueva encima de la anterior: tus proyectos se conservan. Desde esta versión, la app te avisa cuando hay una nueva (si tenés internet) y muestra su número abajo en la barra lateral y en la ayuda (tecla **?**).
 
+## Novedades de la 2.8.0
+
+### Paleta de colores
+
+- La paleta sobria, ahora llamada **Tinta y ámbar**, es la predeterminada. La de siempre, **Cuaderno**, sigue disponible en **Apariencia**.
+
+### Diagrama de clases
+
+- Modo teclado: **M** entra y sale, las flechas recorren las clases, **A** y **O** agregan atributos y operaciones en cadena, y **Enter** o **R** relacionan con otra clase. **N** crea una clase al lado y **/** busca por nombre.
+- Nuevo menú **Relación** en la barra (y teclas 1 a 6) para elegir con qué relación se crean las conexiones nuevas: asociación, herencia, agregación, composición, dependencia o realización. Se recuerda entre sesiones.
+- En Clases de secuencias, **T** recorre las clases y miembros que piden las secuencias y después las relaciones que sus mensajes necesitan.
+
+### Diagrama de secuencia
+
+- El campo rápido del modo teclado ya no sugiere clases, atributos ni valores dentro de `buscar("...", "...")`.
+
 ## Novedades de la 2.7.0
 
 ### Paleta de colores
 
-- Nueva paleta **Índigo y ámbar**, más sobria y profesional: cajas e interfaz en azul acero, con ámbar para notas y condiciones. La paleta de siempre sigue disponible.
+- Nueva paleta **Tinta y ámbar**, más sobria y profesional: cajas e interfaz en azul acero, con ámbar para notas y condiciones. La paleta de siempre sigue disponible.
 - La primera vez que abrís la app elegís la paleta, y después la podés cambiar desde **Apariencia**. Es una preferencia global, junto a claro y oscuro.
 - Las tarjetas de proyecto comparten un solo tono, con portada en degradado.
 

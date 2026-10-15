@@ -36,13 +36,13 @@ Ink on paper with one petrol accent.
 - **Dark mode is "Pizarra"**: light ink on warm graphite, the same accent lifted
   to `#63B7BC`. Not an inverted grey.
 - **Two palettes, picked once.** «Cuaderno» gives each sequence participant a
-  colour family by class, and tints groups and notes. «Índigo y ámbar» uses two
+  colour family by class, and tints groups and notes. «Tinta y ámbar» uses two
   colours with one job each: indigo is the interface accent and every
   participant box; amber is every activation, the note paper and fragment
   guards. Groups keep a third of their hue over the class ink, and notes keep a
   trace of their colour on the amber paper. The palette is global
   (`modelador.palette`), chosen in `PaletteWelcomeDialog` on first launch
-  (Índigo y ámbar preselected, the choice previews live on the app) and changed
+  (Tinta y ámbar preselected, the choice previews live on the app) and changed
   later under Apariencia › Paleta. The shell carries `data-palette` and
   `data-appearance`; stylesheets select on those, never on a theme id.
 

@@ -483,7 +483,7 @@
 }
 
 /* A group colour only tints the header; without one the header stays white.
-   «Índigo y ámbar» keeps a third of the swatch's hue and lets the class ink
+   «Tinta y ámbar» keeps a third of the swatch's hue and lets the class ink
    carry the rest, so groups stay quiet next to its two colours but are still
    told apart. */
 .app-shell { --class-group-tint: 16%; --class-group-chroma: 100%; }

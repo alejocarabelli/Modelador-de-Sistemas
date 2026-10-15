@@ -139,7 +139,7 @@ export const buildThemeVariables = (theme: DiagramTheme): ThemeCssProperties => 
 /** The palette on screen, as `useTheme` publishes it on the root element. */
 const readDocumentPalette = (): PaletteId => {
   const value = document.documentElement.dataset.palette;
-  return isPaletteId(value) ? value : 'cuaderno';
+  return isPaletteId(value) ? value : DEFAULT_PALETTE;
 };
 
 /**

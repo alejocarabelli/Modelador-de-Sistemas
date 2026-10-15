@@ -267,7 +267,7 @@ export const resolveParticipantVisualIdentity = (
     return getNeutralVisualIdentity(participant, options?.theme);
   }
 
-  // «Índigo y ámbar» gives every participant the same identity: the colour says box or activation, not which class.
+  // «Tinta y ámbar» gives every participant the same identity: the colour says box or activation, not which class.
   const shared = options?.theme?.participants;
   if (shared) {
     return { identityKey: resolveParticipantIdentityKey(participant, options), familyId: options.theme?.palette ?? 'shared', ...shared };
@@ -300,7 +300,7 @@ export const resolveParticipantVisualIdentity = (
 
 /**
  * The colours a sequence note is drawn with. «Cuaderno» uses the four schemes
- * as they are; «Índigo y ámbar» keeps their meaning (the border and the dot
+ * as they are; «Tinta y ámbar» keeps their meaning (the border and the dot
  * still tell an alert from a precondition) but draws them on the theme's amber
  * note paper, so a page of notes stays one tone, in both appearances.
  */

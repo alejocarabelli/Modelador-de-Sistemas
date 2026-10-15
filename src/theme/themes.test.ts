@@ -78,7 +78,7 @@ describe('themes', () => {
     expect(getExportTheme('cuaderno')).toBe(academicLightTheme);
   });
 
-  it('gives every Índigo y ámbar participant indigo boxes and amber activations, whatever its class', () => {
+  it('gives every Tinta y ámbar participant indigo boxes and amber activations, whatever its class', () => {
     const identities = ['Tramite', 'Estado', 'GestorCambioEstado'].map((classifierName) =>
       resolveParticipantVisualIdentity({ id: classifierName, kind: 'object', name: '', classifierName }, { theme: indigoLightTheme }),
     );
@@ -90,19 +90,19 @@ describe('themes', () => {
     expect(disabled.familyId).toBe('neutral');
   });
 
-  it('gives every project card the same tone in Índigo y ámbar, with no amber', () => {
+  it('gives every project card the same tone in Tinta y ámbar, with no amber', () => {
     [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
       expect(new Set(theme.ui.projectTones).size, theme.id).toBe(1);
     });
   });
 
-  it('keeps participant text readable on Índigo y ámbar boxes', () => {
+  it('keeps participant text readable on Tinta y ámbar boxes', () => {
     [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
       expect(contrast(theme.sequence.text, theme.participants!.headerFill), theme.id).toBeGreaterThan(7);
     });
   });
 
-  it('draws Índigo y ámbar notes on the amber note paper with readable text, in both appearances', () => {
+  it('draws Tinta y ámbar notes on the amber note paper with readable text, in both appearances', () => {
     [indigoLightTheme, indigoDarkTheme].forEach((theme) => {
       (Object.keys(SEQUENCE_NOTE_COLORS) as Array<keyof typeof SEQUENCE_NOTE_COLORS>).forEach((color) => {
         const scheme = resolveSequenceNoteScheme(theme, color);
