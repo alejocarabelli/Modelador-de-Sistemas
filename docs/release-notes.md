@@ -24,6 +24,12 @@ Se instala solo para tu usuario, sin pedir permisos de administrador.
 
 Instalá la versión nueva encima de la anterior: tus proyectos se conservan. Desde esta versión, la app te avisa cuando hay una nueva (si tenés internet) y muestra su número abajo en la barra lateral y en la ayuda (tecla **?**).
 
+## Novedades de la 2.8.1
+
+### Windows
+
+- El diagrama de clases y las Clases de secuencias vuelven a abrirse. Antes mostraban «No se pudo mostrar este artefacto».
+
 ## Novedades de la 2.8.0
 
 ### Paleta de colores
