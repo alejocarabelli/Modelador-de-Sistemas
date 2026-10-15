@@ -2,7 +2,7 @@ export type ThemeAppearance = 'light' | 'dark';
 
 export type DiagramTheme = {
   id: DiagramThemeId;
-  /** Global palette: «Cuaderno» colours each participant by its class; «Índigo y ámbar» uses two colours with one job each. */
+  /** Global palette: «Cuaderno» colours each participant by its class; «Tinta y ámbar» uses two colours with one job each. */
   palette: PaletteId;
   name: string;
   description: string;
@@ -142,7 +142,7 @@ export type DiagramThemeId = 'academic-light' | 'academic-dark' | 'indigo-light'
 export type PaletteId = 'cuaderno' | 'indigo';
 
 export const PALETTES: ReadonlyArray<{ id: PaletteId; name: string; description: string }> = [
-  { id: 'indigo', name: 'Índigo y ámbar', description: 'Dos colores, uno por papel' },
+  { id: 'indigo', name: 'Tinta y ámbar', description: 'Dos colores, uno por papel' },
   { id: 'cuaderno', name: 'Cuaderno', description: 'Cada clase con su color' },
 ];
 
@@ -362,7 +362,7 @@ export const academicDarkTheme: DiagramTheme = {
 };
 
 /**
- * "Índigo y ámbar": dos colores, cada uno con un solo papel. El índigo es el
+ * "Tinta y ámbar": dos colores, cada uno con un solo papel. El índigo es el
  * acento de la interfaz y el color de todas las cajas de participantes; el
  * ámbar, el de todas las activaciones, las notas y las condiciones de los
  * fragmentos. Las entidades no cambian de color según su clase.
@@ -371,7 +371,7 @@ export const indigoLightTheme: DiagramTheme = {
   ...academicLightTheme,
   id: 'indigo-light',
   palette: 'indigo',
-  name: 'Índigo y ámbar',
+  name: 'Tinta y ámbar',
   description: 'Cajas índigo, activaciones ámbar',
   classNode: { ...academicLightTheme.classNode, borderSelected: '#3B5F8C' },
   parametricNote: {
@@ -442,7 +442,7 @@ export const indigoDarkTheme: DiagramTheme = {
   ...academicDarkTheme,
   id: 'indigo-dark',
   palette: 'indigo',
-  name: 'Índigo y ámbar de noche',
+  name: 'Tinta y ámbar de noche',
   description: 'Cajas índigo, activaciones ámbar',
   canvas: { background: '#12161C', gridColor: '#2A313A', gridColorStrong: '#3A434E', paperLine: '#191F26', paperLineStrong: '#232B35' },
   classNode: {

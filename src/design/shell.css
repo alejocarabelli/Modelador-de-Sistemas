@@ -801,7 +801,7 @@
   padding: var(--space-3) var(--space-4);
 }
 
-/* Índigo y ámbar: every project shares one tone, so the cover gains depth
+/* Tinta y ámbar: every project shares one tone, so the cover gains depth
    from a soft indigo-to-slate gradient and a light edge instead of colour. */
 .app-shell[data-palette='indigo'] .v2-project-card-cover {
   background:
