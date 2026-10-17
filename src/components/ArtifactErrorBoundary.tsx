@@ -3,6 +3,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 type ArtifactErrorBoundaryProps = {
   children: ReactNode;
   onExportProject: () => void;
+  onCopyProject?: () => void;
 };
 
 type ArtifactErrorBoundaryState = {
@@ -42,6 +43,9 @@ export class ArtifactErrorBoundary extends Component<ArtifactErrorBoundaryProps,
           <div>
             <button className="secondary-action" type="button" onClick={this.retry}>Probar de nuevo</button>
             <button className="primary-action" type="button" onClick={this.props.onExportProject}>Exportar proyecto (JSON)</button>
+            {this.props.onCopyProject ? (
+              <button className="secondary-action" type="button" onClick={this.props.onCopyProject}>Copiar proyecto (JSON)</button>
+            ) : null}
           </div>
         </section>
       </div>

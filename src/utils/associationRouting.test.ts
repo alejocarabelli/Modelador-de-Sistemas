@@ -8,6 +8,7 @@ import {
   getAssociationCenterLabelPosition,
   resolveAssociationHandles,
   resolveAutomaticNoteHandles,
+  resolveRenderedAssociationHandles,
 } from './associationRouting';
 
 const automaticEdge: ClassDiagramEdge = {
@@ -201,5 +202,29 @@ describe('self associations', () => {
     expect(loop.source).toEqual({ x: 300, y: 140 });
     expect(loop.target).toEqual({ x: 300, y: 180 });
     expect(pointsOf(loop.path)).toEqual([[300, 140], [340, 140], [340, 180], [300, 180]]);
+  });
+});
+
+describe('resolveRenderedAssociationHandles', () => {
+  const left = { position: { x: 0, y: 0 }, width: 220, height: 120 };
+  const right = { position: { x: 400, y: 0 }, width: 220, height: 120 };
+
+  it('chooses facing ports for a relation written without handles', () => {
+    expect(resolveRenderedAssociationHandles(automaticEdge, left, right)).toEqual({ sourceHandle: 'right', targetHandle: 'left' });
+  });
+
+  it('keeps stored ports and fills only the missing one', () => {
+    expect(resolveRenderedAssociationHandles({ ...automaticEdge, sourceHandle: 'bottom-end' }, left, right))
+      .toEqual({ sourceHandle: 'bottom-end', targetHandle: 'left' });
+  });
+
+  it('ignores an unknown port name', () => {
+    expect(resolveRenderedAssociationHandles({ ...automaticEdge, sourceHandle: 'middle', targetHandle: 'left' }, left, right))
+      .toEqual({ sourceHandle: 'right', targetHandle: 'left' });
+  });
+
+  it('gives a self-relation without ports the corner loop', () => {
+    expect(resolveRenderedAssociationHandles({ ...automaticEdge, target: 'source' }, left, left))
+      .toEqual({ sourceHandle: 'right-start', targetHandle: 'top-end' });
   });
 });

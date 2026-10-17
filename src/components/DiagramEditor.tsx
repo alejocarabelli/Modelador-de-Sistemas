@@ -66,10 +66,11 @@ import {
   writeAssociationLineStyle,
   writeAssociationRelationType,
 } from '../storage/associationPreferences';
-import { ASSOCIATION_RELATION_TYPES, getAssociationMarker, normalizeAssociationData, normalizeAssociationEdge } from '../utils/association';
+import { ASSOCIATION_RELATION_TYPES, getAssociationMarker, handleForSide, normalizeAssociationData, normalizeAssociationEdge } from '../utils/association';
 import {
   oppositeConnectionSide,
   resolveAutomaticNoteHandles,
+  resolveRenderedAssociationHandles,
 } from '../utils/associationRouting';
 import { normalizeClassNode, normalizeDiagramContent } from '../utils/diagramNormalization';
 import { AssociationEdge } from './AssociationEdge';
@@ -1117,8 +1118,8 @@ export function DiagramEditor({
 
         return {
           ...edge,
-          sourceHandle: data.sourceSide === 'automatic' ? edge.sourceHandle : data.sourceSide,
-          targetHandle: data.targetSide === 'automatic' ? edge.targetHandle : data.targetSide,
+          sourceHandle: handleForSide(data.sourceSide, edge.sourceHandle),
+          targetHandle: handleForSide(data.targetSide, edge.targetHandle),
           data,
           markerStart: getAssociationMarker(data.navigability, 'source', data.relationType),
           markerEnd: getAssociationMarker(data.navigability, 'target', data.relationType),
@@ -1322,9 +1323,20 @@ export function DiagramEditor({
 
   const renderedEdges = useMemo<Edge[]>(
     () => {
+      const geometryById = new globalThis.Map(nodes.map((node) => [node.id, {
+        position: node.position,
+        width: nodeSizes[node.id]?.width,
+        height: nodeSizes[node.id]?.height,
+      }]));
       const associationEdges = normalizedEdges.map((edge) => {
+        const sourceGeometry = geometryById.get(edge.source);
+        const targetGeometry = geometryById.get(edge.target);
+        const handles = sourceGeometry !== undefined && targetGeometry !== undefined
+          ? resolveRenderedAssociationHandles(edge, sourceGeometry, targetGeometry)
+          : {};
         return {
           ...edge,
+          ...handles,
           selected: selectedEdgeIds.includes(edge.id),
           reconnectable: edge.id === selectedEdgeId,
           data: {

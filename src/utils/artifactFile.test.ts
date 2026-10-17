@@ -133,41 +133,53 @@ describe('artifact JSON files', () => {
     const [artifact] = extractImportableArtifacts(example)!;
     expect(artifact.type).toBe('class-diagram');
     if (artifact.type !== 'class-diagram') throw new Error('Expected class diagram');
-    expect(artifact.content.nodes).toHaveLength(5);
-    expect(artifact.content.edges).toHaveLength(4);
+    expect(artifact.content.nodes).toHaveLength(8);
+    expect(artifact.content.edges).toHaveLength(7);
     artifact.content.nodes.forEach((node, index) => {
       expect(node.position).toEqual(example.content.nodes[index].position);
       expect(node.data.attributes).toEqual(example.content.nodes[index].data.attributes);
       expect(node.data.methods).toEqual(example.content.nodes[index].data.methods);
     });
     expect(artifact.content.edges.find((edge) => edge.id === 'rel-cliente-pedido')?.data?.navigability).toBe('source-to-target');
-    expect(artifact.content.edges.find((edge) => edge.id === 'rel-cliente-entidad')?.data?.triangleEnd).toBe('target');
+    expect(artifact.content.edges.find((edge) => edge.id === 'rel-pedido-linea')?.data?.diamondEnd).toBe('source');
   });
 
-  it('keeps the reserved rectangles of the guide example separated', () => {
+  it('lays out the guide example as the guide teaches: measured sizes, corridors, straight neighbours', () => {
+    type Member = { name: string; type?: string; parameters?: string; returnType?: string };
     const rectangles = example.content.nodes.map((node: typeof example.content.nodes[number]) => {
       const data = node.data;
       const lines = [
         data.name,
-        ...data.attributes.map((attribute: { name: string; type: string }) => `${attribute.name} ${attribute.type}`),
-        ...data.methods.map((method: { name: string; parameters: string; returnType: string }) => `${method.name}(${method.parameters}) ${method.returnType}`),
+        ...data.attributes.map((attribute: Member) => `${attribute.name}: ${attribute.type}`),
+        ...data.methods.map((method: Member) => `${method.name}(${method.parameters}): ${method.returnType}`),
       ];
       const longest = Math.max(...lines.map((line: string) => line.length));
-      return { id: node.id, ...node.position, width: Math.max(220, 65 + 6 * longest), height: 75 + 20 * (data.attributes.length + data.methods.length) };
+      const attributes = Math.max(1, data.attributes.length);
+      const height = data.methods.length === 0 ? 56 + 21 * attributes : 71 + 21 * (attributes + data.methods.length);
+      return { id: node.id, ...node.position, width: Math.max(220, 65 + 6 * longest), height };
     });
     rectangles.forEach((a: { x: number; y: number; width: number; height: number }, index: number) => {
       rectangles.slice(index + 1).forEach((b: typeof a) => {
-        expect(a.x + a.width + 120 <= b.x || b.x + b.width + 120 <= a.x || a.y + a.height + 100 <= b.y || b.y + b.height + 100 <= a.y).toBe(true);
+        expect(a.x + a.width + 160 <= b.x || b.x + b.width + 160 <= a.x || a.y + a.height + 110 <= b.y || b.y + b.height + 110 <= a.y).toBe(true);
       });
     });
     const byId = new Map(rectangles.map((rectangle: { id: string }) => [rectangle.id, rectangle]));
+    const usedPorts = new Set<string>();
     for (const edge of example.content.edges) {
       const source = byId.get(edge.source) as typeof rectangles[number];
       const target = byId.get(edge.target) as typeof rectangles[number];
-      const horizontal = edge.data.sourceSide === 'left' || edge.data.sourceSide === 'right';
+      if (edge.data.sourceSide === 'automatic') {
+        expect(edge.data.lineStyle).toBe('orthogonal');
+        continue;
+      }
       expect(edge.data.lineStyle).toBe('straight');
-      if (horizontal) expect(source.y + source.height / 2).toBe(target.y + target.height / 2);
-      else expect(source.x + source.width / 2).toBe(target.x + target.width / 2);
+      for (const port of [`${edge.source}:${edge.sourceHandle}`, `${edge.target}:${edge.targetHandle}`]) {
+        expect(usedPorts.has(port)).toBe(false);
+        usedPorts.add(port);
+      }
+      const horizontal = edge.data.sourceSide === 'left' || edge.data.sourceSide === 'right';
+      if (horizontal) expect(Math.abs(source.y + source.height / 2 - (target.y + target.height / 2))).toBeLessThanOrEqual(1);
+      else expect(Math.abs(source.x + source.width / 2 - (target.x + target.width / 2))).toBeLessThanOrEqual(1);
     }
   });
 

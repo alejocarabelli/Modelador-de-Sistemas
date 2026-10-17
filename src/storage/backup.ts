@@ -15,6 +15,7 @@ declare global {
       backup?: BackupBridge;
       windows?: { postMessage: (message: unknown) => Promise<unknown> };
       files?: { postMessage: (message: Record<string, unknown>) => Promise<unknown> };
+      claude?: { postMessage: (message: unknown) => Promise<unknown> };
     };
   }
 }

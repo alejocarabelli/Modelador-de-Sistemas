@@ -55,6 +55,21 @@ describe('association routing', () => {
     expect(edge.targetHandle).toBe('left-end');
   });
 
+  it('keeps a start or end port on an explicit side and centres a port from another side', () => {
+    const edge = normalizeAssociationEdge({
+      id: 'edge-sides',
+      source: 'class-1',
+      sourceHandle: 'right-start',
+      target: 'class-2',
+      targetHandle: 'top-end',
+      type: 'association',
+      data: normalizeAssociationData({ sourceSide: 'right', targetSide: 'left' }),
+    });
+
+    expect(edge.sourceHandle).toBe('right-start');
+    expect(edge.targetHandle).toBe('left');
+  });
+
   it('keeps the compatible central connection points available', () => {
     const edge = normalizeAssociationEdge({
       id: 'edge-2',

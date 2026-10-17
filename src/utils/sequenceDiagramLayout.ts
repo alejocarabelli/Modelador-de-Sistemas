@@ -797,3 +797,73 @@ export const findContainingFragment = (
   }
   return undefined;
 };
+
+const NOTE_GAP = 16;
+const NOTE_BESIDE_ELEMENT = 44;
+
+const rectanglesOverlap = (a: SequenceRect, b: SequenceRect): boolean =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/**
+ * Places the notes listed in `noteIds`, which arrived without coordinates
+ * (typically written by an AI, which cannot know where a message lands): a
+ * note anchored to a message goes just right of the message's rightmost end,
+ * at its height; one anchored to a fragment, right of the frame; to a
+ * participant, beside its lifeline under the headers; a free one, right of
+ * the whole diagram. A note never covers another note: it moves down instead.
+ */
+export const placeUnpositionedSequenceNotes = (
+  content: SequenceDiagramContent,
+  noteIds: ReadonlySet<string>,
+): SequenceDiagramContent['notes'] => {
+  if (noteIds.size === 0) return content.notes;
+  const placedContent = { ...content, notes: content.notes.filter((note) => !noteIds.has(note.id)) };
+  const layout = buildSequenceLayout(placedContent);
+  const occupied: SequenceRect[] = placedContent.notes.map(resolveSequenceNoteRect);
+  const diagramRight = layout.bounds.right;
+  const frames: SequenceRect[] = Array.from(layout.fragmentLayouts.values());
+  return content.notes.map((note) => {
+    if (!noteIds.has(note.id)) return note;
+    const width = Math.max(note.width, 120);
+    const height = Math.max(note.height, getSequenceNoteMinimumHeight({ text: note.text, width }));
+    let x = diagramRight + 60;
+    let y = layout.timelineStart;
+    if (note.anchorKind === 'message' && note.anchorId !== undefined) {
+      const messageLayout = layout.messageLayouts.get(note.anchorId);
+      const message = layout.orderedMessages.find((candidate) => candidate.id === note.anchorId);
+      if (messageLayout !== undefined && message !== undefined) {
+        const sourceX = layout.participantX.get(message.sourceId) ?? 0;
+        const targetX = layout.participantX.get(message.targetId) ?? sourceX;
+        const selfLoop = message.sourceId === message.targetId ? 60 : 0;
+        x = Math.max(sourceX, targetX) + selfLoop + NOTE_BESIDE_ELEMENT;
+        y = messageLayout.y - 22;
+      }
+    } else if (note.anchorKind === 'fragment' && note.anchorId !== undefined) {
+      const fragmentLayout = layout.fragmentLayouts.get(note.anchorId);
+      if (fragmentLayout !== undefined) {
+        x = fragmentLayout.x + fragmentLayout.width + 30;
+        y = fragmentLayout.y;
+      }
+    } else if (note.anchorKind === 'participant' && note.anchorId !== undefined) {
+      const participantX = layout.participantX.get(note.anchorId);
+      if (participantX !== undefined) {
+        x = participantX + NOTE_BESIDE_ELEMENT;
+        y = layout.timelineStart - 30;
+      }
+    }
+    const rect = { x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)), width, height };
+    // Step right past fragment frames, then down past other notes, until clear.
+    for (let guard = 0; guard < 200; guard += 1) {
+      const frame = frames.find((other) => rectanglesOverlap(rect, other));
+      if (frame !== undefined) {
+        rect.x = frame.x + frame.width + 24;
+        continue;
+      }
+      const blocker = occupied.find((other) => rectanglesOverlap(rect, other));
+      if (blocker === undefined) break;
+      rect.y = blocker.y + blocker.height + NOTE_GAP;
+    }
+    occupied.push(rect);
+    return { ...note, x: rect.x, y: rect.y, width, height };
+  });
+};

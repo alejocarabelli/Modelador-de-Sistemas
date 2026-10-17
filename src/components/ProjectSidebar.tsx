@@ -1,5 +1,6 @@
 import {
   Blocks,
+  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -56,6 +57,8 @@ type ProjectSidebarProps = {
   onDeleteProject: (projectId: string) => void;
   onExportProject: (projectId: string) => void;
   onExportArtifact: (projectId: string, artifactId: string) => void;
+  onCopyProject: (projectId: string) => void;
+  onCopyArtifact: (projectId: string, artifactId: string) => void;
   onImportArtifact: (projectId: string) => void;
   onMoveArtifact: (projectId: string, artifactId: string) => void;
   onConvertToSequenceModel?: (projectId: string, artifactId: string) => void;
@@ -128,6 +131,8 @@ export function ProjectSidebar({
   onDeleteProject,
   onExportProject,
   onExportArtifact,
+  onCopyProject,
+  onCopyArtifact,
   onImportArtifact,
   onMoveArtifact,
   onConvertToSequenceModel,
@@ -644,6 +649,10 @@ export function ProjectSidebar({
               >
                 Exportar proyecto (JSON)
               </MenuItem>
+              <MenuItem icon={Copy} onSelect={() => {
+                onCopyProject(optionsMenu.projectId);
+                setOptionsMenu(null);
+              }}>Copiar proyecto (JSON)</MenuItem>
             </>
           ) : optionsMenu.kind === 'file' ? (
             canRevealFiles && optionsMenu.fileId !== undefined ? (
@@ -658,6 +667,10 @@ export function ProjectSidebar({
                 onExportArtifact(optionsMenu.projectId, optionsMenu.artifactId!);
                 setOptionsMenu(null);
               }}>Exportar artefacto (JSON)</MenuItem>
+              <MenuItem icon={Copy} onSelect={() => {
+                onCopyArtifact(optionsMenu.projectId, optionsMenu.artifactId!);
+                setOptionsMenu(null);
+              }}>Copiar artefacto (JSON)</MenuItem>
               <MenuItem icon={MoveRight} onSelect={() => {
                 onMoveArtifact(optionsMenu.projectId, optionsMenu.artifactId!);
                 setOptionsMenu(null);

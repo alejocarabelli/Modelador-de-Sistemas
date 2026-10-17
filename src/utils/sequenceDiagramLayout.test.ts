@@ -721,3 +721,35 @@ describe('single-branch fragment tab', () => {
     expect(fragmentBox(alt).operands[0].guardLines.join('')).toBe('ok');
   });
 });
+
+describe('notes written without coordinates', () => {
+  const content = normalizeSequenceDiagramContent({
+    version: 1,
+    participants: [
+      { id: 'a', kind: 'actor', name: 'Cliente', classifierName: '', x: 140 },
+      { id: 'b', kind: 'object', name: '', classifierName: 'Sistema', x: 500 },
+    ],
+    items: [
+      { id: 'm1', kind: 'message', type: 'synchronous', sourceId: 'a', targetId: 'b', name: 'pedir', arguments: '', parameterValues: '', returnType: '', flowReference: '' },
+      { id: 'm2', kind: 'message', type: 'synchronous', sourceId: 'a', targetId: 'b', name: 'confirmar', arguments: '', parameterValues: '', returnType: '', flowReference: '' },
+    ],
+    notes: [
+      { id: 'n1', text: 'Primera', width: 220, height: 110, anchorKind: 'message', anchorId: 'm1' },
+      { id: 'n2', text: 'Segunda', width: 220, height: 110, anchorKind: 'message', anchorId: 'm2' },
+      { id: 'n3', text: 'Fija', x: 900, y: 600, width: 220, height: 110, anchorKind: 'free' },
+    ],
+  });
+
+  it('places a message note right of the message, at its height', () => {
+    const layout = buildSequenceLayout(content);
+    const note = content.notes.find((candidate) => candidate.id === 'n1')!;
+    expect(note.x).toBeGreaterThan(500);
+    expect(Math.abs(note.y - (layout.messageLayouts.get('m1')!.y - 22))).toBeLessThanOrEqual(1);
+  });
+
+  it('stacks notes that would overlap and leaves placed notes alone', () => {
+    const [first, second, fixed] = content.notes;
+    expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);
+    expect(fixed).toMatchObject({ x: 900, y: 600 });
+  });
+});

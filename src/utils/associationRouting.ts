@@ -146,6 +146,38 @@ export const resolveAssociationHandles = (
   };
 };
 
+const CONNECTION_HANDLE_IDS = new Set(
+  (['top', 'right', 'bottom', 'left'] as const).flatMap((side) => [side, `${side}-start`, `${side}-end`]),
+);
+
+export const isConnectionHandleId = (handleId: string | null | undefined): handleId is string =>
+  typeof handleId === 'string' && CONNECTION_HANDLE_IDS.has(handleId);
+
+/**
+ * The handles an edge is drawn with. A stored port is kept; a missing or
+ * unknown one (an imported or AI-written relation) is chosen from where the
+ * classes sit, instead of letting React Flow fall back to the first port of
+ * the class, which sent every such relation to the same top-left point.
+ */
+export const resolveRenderedAssociationHandles = (
+  edge: ClassDiagramEdge,
+  source: NodeGeometry,
+  target: NodeGeometry,
+): { sourceHandle: string; targetHandle: string } => {
+  const storedSource = isConnectionHandleId(edge.sourceHandle) ? edge.sourceHandle : null;
+  const storedTarget = isConnectionHandleId(edge.targetHandle) ? edge.targetHandle : null;
+  if (storedSource !== null && storedTarget !== null) return { sourceHandle: storedSource, targetHandle: storedTarget };
+  if (edge.source === edge.target) {
+    // The same corner loop the editor draws for a new self-relation.
+    return { sourceHandle: storedSource ?? 'right-start', targetHandle: storedTarget ?? 'top-end' };
+  }
+  const automatic = resolveAssociationHandles(edge, source, target);
+  return {
+    sourceHandle: storedSource ?? automatic.sourceHandle,
+    targetHandle: storedTarget ?? automatic.targetHandle,
+  };
+};
+
 export const resolveAutomaticNoteHandles = (
   classNode: NodeGeometry,
   noteNode: NodeGeometry,

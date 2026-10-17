@@ -18,7 +18,8 @@ import type {
 import { createId } from './id';
 import { formatArgumentList } from './sequenceMessageEditing';
 import { resolveSequenceParticipantX, SEQUENCE_MIN_PARTICIPANT_GAP } from './sequenceDiagramGeometry';
-import type { SequenceLayout } from './sequenceDiagramLayout';
+// Runtime cycle with the layout module, used only inside the normalizer (never at load time).
+import { placeUnpositionedSequenceNotes, type SequenceLayout } from './sequenceDiagramLayout';
 
 export { SEQUENCE_MIN_PARTICIPANT_GAP };
 
@@ -37,6 +38,7 @@ const asOptionalString = (value: unknown): string | undefined => {
 };
 const asOptionalBoolean = (value: unknown): boolean | undefined =>
   typeof value === 'boolean' ? value : undefined;
+const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const asNumber = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 const clamp = (value: number, minimum: number, maximum: number): number =>
@@ -431,6 +433,7 @@ export const normalizeSequenceDiagramContent = (value: unknown): SequenceDiagram
     : [];
 
   const uniqueNoteId = createDeterministicIdFactory('note');
+  const unpositionedNoteIds = new Set<string>();
   const notes: SequenceNote[] = Array.isArray(content.notes)
     ? content.notes.filter(isRecord).map((note, index) => {
         const allocation = uniqueNoteId(note.id, index);
@@ -474,6 +477,7 @@ export const normalizeSequenceDiagramContent = (value: unknown): SequenceDiagram
           );
         }
 
+        if (!isFiniteNumber(note.x) || !isFiniteNumber(note.y)) unpositionedNoteIds.add(allocation.id);
         return {
           id: allocation.id,
           text: asString(note.text),
@@ -517,7 +521,7 @@ export const normalizeSequenceDiagramContent = (value: unknown): SequenceDiagram
   const createdByParticipant = semantics.lifecycle.createdByParticipant;
   const destroyedByParticipant = semantics.lifecycle.destroyedByParticipant;
 
-  return {
+  const withLifecycle: SequenceDiagramContent = {
     ...normalized,
     participants: normalized.participants.map((participant) => ({
       ...participant,
@@ -526,6 +530,11 @@ export const normalizeSequenceDiagramContent = (value: unknown): SequenceDiagram
     })),
     problems: [...persistedRepairs, ...normalizationRepairs, ...semantics.problems],
   };
+  // A note written without x/y is placed beside what it annotates instead of
+  // piling up in the top-left corner.
+  return unpositionedNoteIds.size === 0
+    ? withLifecycle
+    : { ...withLifecycle, notes: placeUnpositionedSequenceNotes(withLifecycle, unpositionedNoteIds) };
 };
 
 export type SequenceDiagramMutationResult = {
