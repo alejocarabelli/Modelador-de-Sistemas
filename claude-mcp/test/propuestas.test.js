@@ -77,8 +77,44 @@ test('proponer_cambio deja la propuesta para el artefacto que corresponde', asyn
   assert.match(mal.content[0].text, /La app no aceptaría este contenido/);
 
   const nuevoSinNombre = await llamar(entorno, 'proponer_cambio', { contenido: {}, descripcion: 'x' });
-  assert.match(nuevoSinNombre.content[0].text, /hacen falta "nuevo_tipo" y "nuevo_nombre"/);
+  assert.match(nuevoSinNombre.content[0].text, /hacen falta "nuevo_tipo", "nuevo_nombre"/);
+
+  const sinNada = await llamar(entorno, 'proponer_cambio', { artefacto: 'cambio de estado', descripcion: 'x' });
+  assert.match(sinNada.content[0].text, /Mandá "operaciones"/);
+  const losDos = await llamar(entorno, 'proponer_cambio', { artefacto: 'cambio de estado', contenido, operaciones: [], descripcion: 'x' });
+  assert.match(losDos.content[0].text, /no los dos/);
 
   const pendientes = await llamar(entorno, 'ver_propuestas_pendientes', {});
   assert.match(pendientes.content[0].text, /Cambio en "CU 3 · Cambio de estado": Saco el camino alternativo\./);
+});
+
+test('proponer_cambio con operaciones guarda el resultado y las operaciones, sin reescribir el artefacto', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'modelador-'));
+  await writeFile(join(base, 'respaldo-1.json'), JSON.stringify({ version: 2, projects: [demo] }));
+  const entorno = { MODELADOR_RESPALDOS: base, MODELADOR_WEBKIT: join(base, 'nada'), MODELADOR_PROPUESTAS: join(base, 'Propuestas') };
+  const flujo = demo.artifacts.find((a) => a.type === 'use-case-flow');
+  const paso = flujo.content.basicFlow[0];
+  const operaciones = [{ op: 'modificar', id: paso.id, campos: { actor: 'El usuario elige el trámite.' } }];
+
+  const respuesta = await llamar(entorno, 'proponer_cambio', { artefacto: 'cambio de estado', operaciones, descripcion: 'Aclaro el primer paso.' });
+  assert.equal(respuesta.isError, undefined, respuesta.content[0].text);
+  assert.match(respuesta.content[0].text, new RegExp(`modificado ${paso.id}`));
+  const [archivo] = await readdir(join(base, 'Propuestas'));
+  const propuesta = JSON.parse(await readFile(join(base, 'Propuestas', archivo), 'utf8'));
+  assert.deepEqual(propuesta.operations, operaciones);
+  assert.equal(propuesta.content.basicFlow[0].actor, 'El usuario elige el trámite.');
+  assert.deepEqual(propuesta.content.alternativeFlows, flujo.content.alternativeFlows);
+
+  // El nombre de la 0.3.0 sigue andando para quien lo tenga en una conversación vieja.
+  const viejo = await llamar(entorno, 'editar_artefacto', { artefacto: 'cambio de estado', operaciones, descripcion: 'x' });
+  assert.equal(viejo.isError, undefined);
+});
+
+test('la guía de las clases de secuencias incluye la sección de clases a la que remite', async () => {
+  const { guiaPara } = await import('../server/guia.js');
+  const guia = await guiaPara('class-sequence-diagram');
+  assert.match(guia, /^## 1\./m);
+  assert.match(guia, /^## 2\./m);
+  assert.match(guia, /^## 6\./m);
+  assert.doesNotMatch(guia, /^## 5\./m);
 });

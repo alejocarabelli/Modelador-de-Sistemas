@@ -12,8 +12,13 @@
 //   { op: 'mover', id, en, lista, despues_de? }  lo saca de donde está y lo pone en otra posición
 // `id: 'contenido'` (o `en: 'contenido'`) es la raíz del artefacto. `despues_de` es el id
 // del elemento anterior, 'inicio' para el principio, o se omite para el final.
+//
+// La app importa este mismo archivo (src/storage/claudeProposals.ts) para volver a aplicar
+// las operaciones sobre la versión que tiene en ese momento: por eso no usa nada de Node.
 
-import { randomUUID } from 'node:crypto';
+const nuevoId = () => (globalThis.crypto?.randomUUID
+  ? globalThis.crypto.randomUUID()
+  : `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 
 export const RAIZ = 'contenido';
 
@@ -125,7 +130,7 @@ export function aplicarOperaciones(contenidoOriginal, operaciones) {
         case 'agregar': {
           if (!esObjeto(operacion.elemento)) throw new Error('falta "elemento".');
           const elemento = structuredClone(operacion.elemento);
-          if (typeof elemento.id !== 'string' || !elemento.id) elemento.id = randomUUID();
+          if (typeof elemento.id !== 'string' || !elemento.id) elemento.id = nuevoId();
           if (indexar(contenido).has(elemento.id)) throw new Error(`ya existe un elemento con id "${elemento.id}".`);
           insertar(listaDestino(contenido, operacion.en, operacion.lista), elemento, operacion.despues_de);
           quitados.delete(elemento.id);

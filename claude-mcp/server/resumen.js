@@ -13,7 +13,7 @@ const TIPOS = {
 export const nombreDeTipo = (tipo) => TIPOS[tipo] ?? tipo;
 
 // Con { ids: true } cada elemento lleva su id entre ‹ ›, para que Claude pueda
-// apuntarle con editar_artefacto sin leer el JSON entero. Se fija por llamada
+// apuntarle con proponer_cambio sin leer el JSON entero. Se fija por llamada
 // (resumirArtefacto es sincrónico).
 let conIds = false;
 const id = (elemento) => (conIds && typeof elemento?.id === 'string' ? ` ‹${elemento.id}›` : '');

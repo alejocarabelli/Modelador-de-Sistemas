@@ -13,7 +13,7 @@ import { escribirPropuesta, problemasDelContenido, propuestasPendientes, TIPOS_V
 import { antiguedad, buscar, leerUltimoRespaldo, loQueEstaAbierto, proyectosDe } from './respaldos.js';
 import { nombreDeTipo, resumirApuntes, resumirArtefacto } from './resumen.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 const ARGUMENTOS_DE_ARTEFACTO = {
   type: 'object',
@@ -26,7 +26,7 @@ const ARGUMENTOS_DE_ARTEFACTO = {
 
 const CON_IDS = {
   type: 'boolean',
-  description: 'Agrega el id de cada elemento entre ‹ ›. Pedilo antes de usar editar_artefacto.',
+  description: 'Agrega el id de cada elemento entre ‹ ›. Pedilo antes de usar proponer_cambio en un artefacto existente.',
 };
 
 const HERRAMIENTAS = [
@@ -79,52 +79,36 @@ const HERRAMIENTAS = [
 ].map((herramienta) => ({ ...herramienta, annotations: { readOnlyHint: true, openWorldHint: false } }));
 
 HERRAMIENTAS.push({
-  name: 'editar_artefacto',
+  name: 'proponer_cambio',
   description: [
-    'Propone cambios puntuales en un artefacto existente sin reescribirlo: mandás solo operaciones sobre elementos identificados por su id',
-    '(sacá los id con ver_lo_que_estoy_haciendo o leer_artefacto con con_ids: true). La extensión las aplica sobre la versión actual,',
-    'verifica que no quede ninguna referencia rota (por ejemplo un retorno sin su llamada) y deja UNA propuesta: el estudiante la ve en la app',
-    'y elige Aplicar o Descartar; si aplica, se deshace en un paso. Usala solo cuando te pida que cambies algo.',
+    'Propone un cambio que el estudiante aplica o descarta en la app: no modifica nada por sí sola. En el Modelador le aparece un aviso con tu',
+    'descripción y los botones Aplicar y Descartar; si aplica, se deshace con Cmd+Z. Usala solo cuando te pida que cambies o armes algo.',
+    'Para cambiar un artefacto existente mandá "artefacto" y "operaciones": solo lo que cambia, NUNCA el diagrama entero.',
+    'Sacá los id con ver_lo_que_estoy_haciendo o leer_artefacto con con_ids: true. La extensión aplica las operaciones sobre la versión actual,',
+    'verifica que no quede ninguna referencia rota (por ejemplo un retorno sin su llamada) y la app las vuelve a aplicar al aceptar, así no se pierde',
+    'lo que el estudiante haya cambiado mientras tanto.',
     'Operaciones: {"op":"modificar","id":X,"campos":{...}} mezcla los campos (los objetos por dentro, p. ej. {"data":{"name":"Y"}} en una clase;',
     'las listas se reemplazan; null borra el campo). {"op":"agregar","en":X,"lista":"nombre de la lista","elemento":{...},"despues_de":id|"inicio"}',
     '(sin despues_de va al final; sin id en el elemento se genera uno). {"op":"quitar","id":X}. {"op":"mover","id":X,"en":Y,"lista":...,"despues_de":...}',
     'para cambiar algo de lugar (por ejemplo sacar un mensaje de un fragmento: en = id del operando o "contenido", lista = "items").',
     'El id "contenido" es la raíz: el encabezado de un flujo se cambia con {"op":"modificar","id":"contenido","campos":{"description":{"postcondition":"..."}}}.',
-    'Listas habituales: en "contenido", nodes y edges (clases y casos de uso), participants e items (secuencia), basicFlow y alternativeFlows (flujo);',
+    'Listas habituales: en "contenido", nodes y edges (clases y casos de uso), participants, items y notes (secuencia), basicFlow y alternativeFlows (flujo);',
     'en una clase, "data.attributes" y "data.methods"; en un fragmento, "operands"; en un operando, "items"; en un camino alternativo, "steps".',
-  ].join(' '),
-  inputSchema: {
-    type: 'object',
-    properties: {
-      artefacto: ARGUMENTOS_DE_ARTEFACTO.properties.artefacto,
-      proyecto: ARGUMENTOS_DE_ARTEFACTO.properties.proyecto,
-      operaciones: { type: 'array', items: { type: 'object' }, description: 'Las operaciones, en orden.' },
-      descripcion: { type: 'string', description: 'Qué cambia y por qué, en una o dos oraciones, para el aviso de la app.' },
-    },
-    required: ['artefacto', 'operaciones', 'descripcion'],
-  },
-  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-});
-
-HERRAMIENTAS.push({
-  name: 'proponer_cambio',
-  description: [
-    'Propone un artefacto NUEVO (con nuevo_tipo y nuevo_nombre) o la reescritura completa de uno chico.',
-    'Para cambiar partes de un artefacto existente usá editar_artefacto: es más seguro y mucho más corto.',
-    'No modifica nada por sí sola: en la app le aparece al estudiante un aviso con tu descripción y los botones Aplicar y Descartar, y si aplica puede deshacerlo.',
-    'Usala solo cuando el estudiante te pida que armes o cambies algo. Si no conocés el formato del tipo, leé antes ver_guia_de_formato.',
+    'Si no conocés los campos de un elemento nuevo, mirá uno parecido con leer_artefacto_json o leé ver_guia_de_formato.',
+    'Para un artefacto NUEVO mandá "contenido" completo con "nuevo_tipo" y "nuevo_nombre" (leé antes ver_guia_de_formato).',
   ].join(' '),
   inputSchema: {
     type: 'object',
     properties: {
       artefacto: { type: 'string', description: 'Nombre o ID del artefacto a cambiar. Omitilo si proponés uno nuevo.' },
       proyecto: ARGUMENTOS_DE_ARTEFACTO.properties.proyecto,
-      contenido: { type: 'object', description: 'El "content" completo del artefacto tal como debe quedar.' },
+      operaciones: { type: 'array', items: { type: 'object' }, description: 'Para cambiar un artefacto existente: las operaciones, en orden.' },
+      contenido: { type: 'object', description: 'Solo para un artefacto nuevo: su "content" completo.' },
       descripcion: { type: 'string', description: 'Qué cambia y por qué, en una o dos oraciones, para el aviso de la app.' },
       nuevo_tipo: { type: 'string', enum: TIPOS_VALIDOS, description: 'Solo para un artefacto nuevo.' },
       nuevo_nombre: { type: 'string', description: 'Solo para un artefacto nuevo.' },
     },
-    required: ['contenido', 'descripcion'],
+    required: ['descripcion'],
   },
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
 });
@@ -229,8 +213,7 @@ async function ejecutar(nombre, argumentos = {}) {
       if (!hay) lineas.push('', '(No escribió apuntes ni dudas en este proyecto.)');
       return lineas.join('\n');
     }
-    case 'editar_artefacto':
-      return editarArtefacto(proyectos, argumentos);
+    case 'editar_artefacto': // Nombre de la 0.3.0: lo mismo que proponer_cambio con operaciones.
     case 'proponer_cambio':
       return proponerCambio(proyectos, argumentos);
     default:
@@ -238,30 +221,14 @@ async function ejecutar(nombre, argumentos = {}) {
   }
 }
 
-async function editarArtefacto(proyectos, argumentos) {
-  const proyecto = elegirProyecto(proyectos, argumentos.proyecto);
-  if (!proyecto) throw new Error('No hay un proyecto abierto.');
-  const artefacto = elegirArtefacto(proyecto, argumentos.artefacto);
-  const descripcion = String(argumentos.descripcion ?? '').trim();
-  if (!descripcion) throw new Error('Falta "descripcion": el estudiante la lee antes de decidir.');
-  let operaciones = argumentos.operaciones;
-  if (typeof operaciones === 'string') {
-    try {
-      operaciones = JSON.parse(operaciones);
-    } catch {
-      throw new Error('"operaciones" no es un JSON válido.');
-    }
+const comoJson = (valor, campo) => {
+  if (typeof valor !== 'string') return valor;
+  try {
+    return JSON.parse(valor);
+  } catch {
+    throw new Error(`"${campo}" no es un JSON válido.`);
   }
-
-  const { contenido, hechas } = aplicarOperaciones(artefacto.content, operaciones);
-  return guardarPropuesta({
-    projectId: proyecto.id,
-    artifactId: artefacto.id,
-    type: artefacto.type,
-    name: artefacto.name,
-    basedOnUpdatedAt: artefacto.updatedAt ?? null,
-  }, contenido, descripcion, `Operaciones aplicadas sobre la versión actual: ${hechas.join(', ')}.`);
-}
+};
 
 async function guardarPropuesta(propuesta, contenido, descripcion, detalle = '') {
   const problemas = problemasDelContenido(propuesta.type, contenido);
@@ -279,33 +246,34 @@ async function guardarPropuesta(propuesta, contenido, descripcion, detalle = '')
 async function proponerCambio(proyectos, argumentos) {
   const proyecto = elegirProyecto(proyectos, argumentos.proyecto);
   if (!proyecto) throw new Error('No hay un proyecto abierto al que proponerle el cambio.');
-  let contenido = argumentos.contenido;
-  if (typeof contenido === 'string') {
-    try {
-      contenido = JSON.parse(contenido);
-    } catch {
-      throw new Error('"contenido" no es un JSON válido.');
-    }
-  }
   const descripcion = String(argumentos.descripcion ?? '').trim();
   if (!descripcion) throw new Error('Falta "descripcion": el estudiante la lee antes de decidir.');
+  const operaciones = comoJson(argumentos.operaciones, 'operaciones');
+  const contenido = comoJson(argumentos.contenido, 'contenido');
+  const hayOperaciones = operaciones !== undefined && operaciones !== null;
+  const hayContenido = contenido !== undefined && contenido !== null;
+  if (hayOperaciones && hayContenido) throw new Error('Mandá "operaciones" o "contenido", no los dos.');
 
-  let propuesta;
-  if (argumentos.artefacto) {
-    const artefacto = elegirArtefacto(proyecto, argumentos.artefacto);
-    propuesta = {
-      projectId: proyecto.id,
-      artifactId: artefacto.id,
-      type: artefacto.type,
-      name: artefacto.name,
-      basedOnUpdatedAt: artefacto.updatedAt ?? null,
-    };
-  } else {
+  if (!argumentos.artefacto) {
     const nombre = String(argumentos.nuevo_nombre ?? '').trim();
-    if (!argumentos.nuevo_tipo || !nombre) throw new Error('Para un artefacto nuevo hacen falta "nuevo_tipo" y "nuevo_nombre"; para cambiar uno, "artefacto".');
-    propuesta = { projectId: proyecto.id, artifactId: null, type: argumentos.nuevo_tipo, name: nombre, basedOnUpdatedAt: null };
+    if (!argumentos.nuevo_tipo || !nombre) throw new Error('Para un artefacto nuevo hacen falta "nuevo_tipo", "nuevo_nombre" y "contenido"; para cambiar uno, "artefacto" y "operaciones".');
+    if (!hayContenido) throw new Error('Un artefacto nuevo necesita "contenido" completo.');
+    return guardarPropuesta({ projectId: proyecto.id, artifactId: null, type: argumentos.nuevo_tipo, name: nombre, basedOnUpdatedAt: null }, contenido, descripcion);
   }
 
+  const artefacto = elegirArtefacto(proyecto, argumentos.artefacto);
+  const propuesta = {
+    projectId: proyecto.id,
+    artifactId: artefacto.id,
+    type: artefacto.type,
+    name: artefacto.name,
+    basedOnUpdatedAt: artefacto.updatedAt ?? null,
+  };
+  if (hayOperaciones) {
+    const { contenido: resultado, hechas } = aplicarOperaciones(artefacto.content, operaciones);
+    return guardarPropuesta({ ...propuesta, operations: operaciones }, resultado, descripcion, `Operaciones aplicadas sobre la versión actual: ${hechas.join(', ')}.`);
+  }
+  if (!hayContenido) throw new Error('Mandá "operaciones" con lo que cambia (con los id de con_ids: true).');
   return guardarPropuesta(propuesta, contenido, descripcion);
 }
 
@@ -327,7 +295,7 @@ async function atender(pedido) {
           capabilities: { tools: {} },
           serverInfo: { name: 'modelador-de-sistemas', version: VERSION },
           instructions:
-            'Herramientas para ver el trabajo del estudiante en el Modelador de Sistemas (materia Diseño de Sistemas). Leen lo que la app tiene guardado en este Mac. Para cambiar algo, editar_artefacto (cambios puntuales) o proponer_cambio (artefactos nuevos) dejan una propuesta que el estudiante aplica o descarta en la app; nunca se modifica nada sin que él acepte. Al hablar de un mensaje de una secuencia, nombralo por su texto, sus participantes y el fragmento donde está; no le pongas números, porque el estudiante no los usa.',
+            'Herramientas para ver el trabajo del estudiante en el Modelador de Sistemas (materia Diseño de Sistemas). Leen lo que la app tiene guardado en este Mac. Para cambiar algo, proponer_cambio deja una propuesta que el estudiante aplica o descarta en la app; nunca se modifica nada sin que él acepte. Para un artefacto existente mandá solo operaciones sobre los elementos que cambian (sus id salen con con_ids: true), nunca el diagrama entero. Al hablar de un mensaje de una secuencia, nombralo por su texto, sus participantes y el fragmento donde está; no le pongas números, porque el estudiante no los usa.',
         },
       });
     case 'ping':

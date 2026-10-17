@@ -1,5 +1,7 @@
-import type { DesignArtifact, DiagramProject } from '../types/diagram';
+import type { ArtifactContent, DesignArtifact, DiagramProject } from '../types/diagram';
 import { extractImportableArtifacts } from '../utils/artifactFile';
+// El mismo código con que la extensión arma la propuesta: así la app aplica exactamente lo mismo.
+import { aplicarOperaciones } from '../../claude-mcp/server/edicion.js';
 
 /**
  * Propuestas de cambio que deja Claude (la extensión de Claude Desktop, en
@@ -29,6 +31,11 @@ export type ClaudeProposal = {
   description: string;
   /** updatedAt del artefacto cuando Claude lo leyó, para avisar si cambió después. */
   basedOnUpdatedAt: string | null;
+  /**
+   * Las operaciones con que Claude armó el cambio (modificar, agregar, quitar, mover), si las
+   * mandó: al aplicar se repiten sobre la versión de ese momento y no se pisa lo editado después.
+   */
+  operations: unknown[] | null;
 };
 
 export type InvalidClaudeProposal = { file: string; error: string };
@@ -76,6 +83,7 @@ export const parseClaudeProposal = (file: string, text: string): ParsedClaudePro
     artifact: artifacts[0],
     description: typeof value.description === 'string' ? value.description.trim() : '',
     basedOnUpdatedAt: optionalString(value.basedOnUpdatedAt),
+    operations: Array.isArray(value.operations) && value.operations.length > 0 ? value.operations : null,
   };
 };
 
@@ -96,7 +104,15 @@ export const resolveClaudeProposal = async (file: string): Promise<void> => {
 };
 
 export type ProposalTarget =
-  | { kind: 'replace'; project: DiagramProject; artifact: DesignArtifact; changedSinceRead: boolean }
+  | {
+    kind: 'replace';
+    project: DiagramProject;
+    artifact: DesignArtifact;
+    /** Lo que queda si se aplica: las operaciones sobre la versión de ahora, o lo que propuso Claude. */
+    content: ArtifactContent;
+    /** El artefacto cambió después de que Claude lo leyó y aplicar reemplaza esos cambios. */
+    changedSinceRead: boolean;
+  }
   | { kind: 'new'; project: DiagramProject }
   | { kind: 'invalid'; error: string };
 
@@ -112,5 +128,19 @@ export const resolveProposalTarget = (proposal: ParsedClaudeProposal, projects: 
     return { kind: 'invalid', error: 'La propuesta es de otro tipo de artefacto que el que tiene que cambiar.' };
   }
   const changedSinceRead = proposal.basedOnUpdatedAt !== null && proposal.basedOnUpdatedAt !== artifact.updatedAt;
-  return { kind: 'replace', project, artifact, changedSinceRead };
+  const rebased = proposal.operations === null ? null : applyOperationsTo(artifact, proposal.operations);
+  if (rebased !== null) return { kind: 'replace', project, artifact, content: rebased, changedSinceRead: false };
+  return { kind: 'replace', project, artifact, content: proposal.artifact.content, changedSinceRead };
+};
+
+/** Las operaciones de Claude sobre el contenido actual, normalizado como un artefacto importado; null si ya no encajan. */
+const applyOperationsTo = (artifact: DesignArtifact, operations: unknown[]): ArtifactContent | null => {
+  let content: unknown;
+  try {
+    content = aplicarOperaciones(artifact.content, operations).contenido;
+  } catch {
+    return null;
+  }
+  const artifacts = extractImportableArtifacts({ type: artifact.type, name: artifact.name, content });
+  return artifacts !== null && artifacts.length === 1 ? artifacts[0].content : null;
 };

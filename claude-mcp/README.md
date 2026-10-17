@@ -28,13 +28,12 @@ Claude tiene estas herramientas:
 | `leer_mis_dudas` | Las dudas y apuntes de todo el proyecto. |
 | `leer_artefacto_json` | El JSON completo; solo si el resumen no alcanza. |
 | `ver_guia_de_formato` | La guía del formato JSON de un tipo de artefacto. |
-| `editar_artefacto` | Propone cambios puntuales: modificar, agregar, quitar o mover elementos por su id. |
-| `proponer_cambio` | Propone un artefacto nuevo (o la reescritura de uno chico). |
+| `proponer_cambio` | Propone un cambio: solo lo que cambia (modificar, agregar, quitar o mover elementos por su id) o un artefacto nuevo. |
 | `ver_propuestas_pendientes` | Las propuestas que todavía no aplicaste ni descartaste. |
 
 ### Cambios propuestos por Claude
 
-Pedile, por ejemplo, "corregí los retornos de la secuencia". Claude no reescribe el diagrama: manda solo las operaciones (cambiá este mensaje, sacá este otro del loop…), la extensión las aplica sobre la versión actual y frena si alguna referencia quedaría rota, como un retorno sin su llamada. Después deja la propuesta en **Documentos › Modelador de Sistemas › Claude › Propuestas** y la app (desde la versión que trae el puente de propuestas) te muestra un aviso debajo de las pestañas con lo que cambia y los botones **Ver**, **Descartar** y **Aplicar**. Aplicar pasa por el mismo historial que un cambio hecho a mano: se deshace con ⌘Z. Si cambiaste el artefacto después de que Claude lo leyó, el aviso te lo dice antes de aplicar.
+Pedile, por ejemplo, "corregí los retornos de la secuencia". Claude no reescribe el diagrama: manda solo las operaciones (cambiá este mensaje, sacá este otro del loop…), la extensión las aplica sobre la versión actual y frena si alguna referencia quedaría rota, como un retorno sin su llamada. Al tocar **Aplicar**, la app vuelve a aplicar esas mismas operaciones sobre lo que tenés en ese momento, así no se pierde lo que hayas cambiado mientras tanto. Después deja la propuesta en **Documentos › Modelador de Sistemas › Claude › Propuestas** y la app (desde la versión que trae el puente de propuestas) te muestra un aviso debajo de las pestañas con lo que cambia y los botones **Ver**, **Descartar** y **Aplicar**. Aplicar pasa por el mismo historial que un cambio hecho a mano: se deshace con ⌘Z. Si cambiaste el artefacto después de que Claude lo leyó y las operaciones ya no encajan (por ejemplo, borraste el mensaje que Claude quería cambiar), el aviso te lo dice antes de aplicar.
 
 ### De dónde lee
 

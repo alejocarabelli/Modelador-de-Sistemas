@@ -44,7 +44,7 @@ export async function guiaPara(tipo) {
   const numero = SECCION_POR_TIPO[tipo];
   if (!numero) throw new Error(`Tipo desconocido: ${tipo}. Tiene que ser uno de ${Object.keys(SECCION_POR_TIPO).join(', ')}.`);
   const porNumero = secciones(await leerGuia());
-  return [porNumero.get('1'), porNumero.get(numero), tipo === 'sequence-diagram' ? porNumero.get('7') : null]
-    .filter(Boolean)
-    .join('\n\n');
+  // Las clases de secuencias remiten a la sección de clases (formato y disposición); la secuencia, a la 7.
+  const numeros = { 'class-sequence-diagram': ['1', '2', '6'], 'sequence-diagram': ['1', '5', '7'] }[tipo] ?? ['1', numero];
+  return numeros.map((n) => porNumero.get(n)).filter(Boolean).join('\n\n');
 }

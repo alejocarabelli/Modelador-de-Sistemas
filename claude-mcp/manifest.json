@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "modelador-de-sistemas",
   "display_name": "Modelador de Sistemas",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Deja que Claude vea los diagramas que estás haciendo en el Modelador de Sistemas y te proponga cambios, que vos aplicás o descartás en la app.",
   "long_description": "Lee lo que la app tiene guardado en el Mac (y, si no lo encuentra, el último respaldo automático) y se lo pasa a Claude resumido en texto: casos de uso, flujos de sucesos, secuencias y clases, con tus apuntes y dudas. Claude nunca modifica tus datos: cuando le pedís un cambio, deja una propuesta y la app te pregunta si aplicarla (y se puede deshacer). No usa internet.",
   "author": {
@@ -53,12 +53,8 @@
       "description": "Las propuestas que todavía no aplicaste ni descartaste."
     },
     {
-      "name": "editar_artefacto",
-      "description": "Propone cambios puntuales (modificar, agregar, quitar o mover elementos por su id) sin reescribir el artefacto."
-    },
-    {
       "name": "proponer_cambio",
-      "description": "Propone un artefacto nuevo que aplicás o descartás en la app."
+      "description": "Propone un cambio que aplicás o descartás en la app: solo lo que cambia (modificar, agregar, quitar o mover elementos por su id), o un artefacto nuevo."
     }
   ],
   "keywords": [

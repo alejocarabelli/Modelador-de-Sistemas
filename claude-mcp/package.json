@@ -1,6 +1,6 @@
 {
   "name": "modelador-de-sistemas-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Servidor MCP para que Claude Desktop vea el trabajo en el Modelador de Sistemas y proponga cambios.",

@@ -638,7 +638,7 @@ function App() {
     }
     const historyKey = `${target.project.id}:${target.artifact.id}`;
     const previousContent = cloneArtifactContent(target.artifact);
-    const nextContent = cloneContentForType(target.artifact.type, proposal.artifact.content);
+    const nextContent = cloneContentForType(target.artifact.type, target.content);
     const projectHistory = historyByArtifactIdRef.current[historyKey] ?? { past: [], future: [] };
     const nextHistory = changeHistory(projectHistory, previousContent, true, MAX_HISTORY_ENTRIES);
     updateHistory((currentHistory) => ({ ...currentHistory, [historyKey]: nextHistory }));

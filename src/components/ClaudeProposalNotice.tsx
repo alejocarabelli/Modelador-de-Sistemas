@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { DiagramProject } from '../types/diagram';
 import { isInvalidProposal, resolveProposalTarget, type ClaudeProposal, type ParsedClaudeProposal } from '../storage/claudeProposals';
 
@@ -14,8 +15,9 @@ type ClaudeProposalNoticeProps = {
 /** Una propuesta de Claude por vez, la más vieja primero. Nada se aplica sin que el usuario lo pida. */
 export function ClaudeProposalNotice({ proposals, projects, activeProjectId, activeArtifactId, onView, onApply, onDiscard }: ClaudeProposalNoticeProps) {
   const proposal = proposals[0];
-  if (proposal === undefined) return null;
-  const target = resolveProposalTarget(proposal, projects);
+  // Repetir las operaciones de Claude sobre un diagrama grande no es gratis: solo cuando cambia algo.
+  const target = useMemo(() => (proposal === undefined ? null : resolveProposalTarget(proposal, projects)), [proposal, projects]);
+  if (proposal === undefined || target === null) return null;
   const counter = proposals.length > 1 ? <span className="claude-proposal-counter">1 de {proposals.length}</span> : null;
 
   if (target.kind === 'invalid' || isInvalidProposal(proposal)) {
