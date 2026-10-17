@@ -125,8 +125,8 @@ Con una clase en `(x, y)` de ancho `W` y alto `H`, los puertos quedan exactament
 
 - **Lado fijo** (`sourceSide` / `targetSide` = `"top"`, `"right"`, `"bottom"` o `"left"`): la línea sale de ese lado. Si el handle es un puerto de ese mismo lado (`"right-start"` con `sourceSide: "right"`), se respeta; si no, se usa el centro del lado.
 - **Lado `"automatic"` con handle**: se usa el handle tal cual.
-- **Lado `"automatic"` sin handle**: la aplicación elige el lado que mira a la otra clase y, sobre ese lado, el puerto más cercano a ella. Es la opción segura para relaciones diagonales.
-- Nunca dejes dos relaciones en el **mismo puerto** de una clase: las flechas y las multiplicidades se pisan. Si dos relaciones salen por el mismo lado, una va al centro y la otra a `-start` o `-end`; tres, por `-start`, centro y `-end`.
+- **Lado `"automatic"` sin handle**: la aplicación elige el lado que mira a la otra clase. Si varias relaciones elegidas así salen por el mismo lado, las **reparte a lo largo de ese lado**, ordenadas según dónde está cada clase, sin superponerlas. Es la opción segura para relaciones diagonales y para una clase con muchas relaciones.
+- Nunca dejes dos relaciones en el **mismo puerto** de una clase: las flechas y las multiplicidades se pisan. Si dos relaciones con lado fijo salen por el mismo lado, una va al centro y la otra a `-start` o `-end`; tres, por `-start`, centro y `-end`. Con más de tres por lado, no escribas handles: dejá esas relaciones en `"automatic"` y la aplicación las reparte.
 
 #### Recta o con codos
 
@@ -164,7 +164,7 @@ Ejemplos medidos: una clase con 2 atributos y ningún método mide 220 × 98; co
    - Superclases, arriba de sus subclases.
    - El todo de una composición o agregación, a la izquierda o arriba de sus partes.
    - Las asociaciones de colaboración, de izquierda a derecha.
-3. Las relaciones que sobran van a clases ubicadas en las **diagonales** (arriba a la izquierda, abajo a la derecha…). Se dibujan con lado automático como una L o una Z por el pasillo, con su propio puerto `-start` o `-end`. Hasta 4 relaciones rectas y 2 a 4 diagonales por clase se leen bien.
+3. Las relaciones que sobran van a clases ubicadas en las **diagonales** (arriba a la izquierda, abajo a la derecha…) o más lejos. Escribilas con lados `"automatic"` y **sin handles**: se dibujan como una L o una Z por el pasillo y la aplicación reparte sus extremos a lo largo del lado. Hasta 4 relaciones rectas y 2 a 4 diagonales por clase se leen bien.
 4. Si una clase de las vecinas tiene a su vez otra relación, encadenala: ponela al lado de esa vecina, no del hub. Por ejemplo, `Producto` va arriba de `LineaPedido`, no conectada al hub.
 5. Si una clase supera las 8 relaciones, es una señal de diseño. Revisá si todas son necesarias (por ejemplo, un DTO o una pantalla no se asocian con todas las entidades), o acordá dividir el modelo en dos diagramas.
 
@@ -1193,7 +1193,7 @@ Usá los mismos criterios de espaciado, puertos y símbolos UML que en la secci�
 - Grilla de columnas y filas, con pasillos de 160 a 180 entre columnas y de 110 a 140 entre filas. Cada clase va centrada en su columna (`x = cx − W/2`) y en su fila (`y = cy − H/2`).
 - La clase con más relaciones va en el centro. Sus cuatro vecinas directas (arriba, abajo, izquierda y derecha) se unen con relaciones rectas: lados fijos enfrentados, handles centrales y `lineStyle: "straight"`.
 - Las demás relaciones van a clases en diagonal, con lados `"automatic"`, sin handles y `lineStyle: "orthogonal"`. Las que siguen una cadena (una DTO que contiene otra) van al lado de la clase con la que se relacionan, no del centro.
-- Nunca dos relaciones en el mismo puerto de una clase. Nunca todas las relaciones a una misma clase por el mismo lado.
+- Nunca dos relaciones con el mismo handle en una clase. Una clase con muchas relaciones (un Experto que usa muchas clases) va en el centro; sus relaciones que no son vecinas directas van con lados `"automatic"` y sin handles, y la aplicación las reparte por sus cuatro lados.
 
 ### 6.1. Ejemplo completo e importable
 

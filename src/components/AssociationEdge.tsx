@@ -217,12 +217,17 @@ export function AssociationEdge({
   source,
   target,
   sourcePosition,
-  sourceX,
-  sourceY,
+  sourceX: handleSourceX,
+  sourceY: handleSourceY,
   targetPosition,
-  targetX,
-  targetY,
+  targetX: handleTargetX,
+  targetY: handleTargetY,
 }: EdgeProps<AssociationEdgeData>) {
+  // An end spread along a crowded side is drawn from its own point, not the shared handle.
+  const sourceX = data?.sourcePoint?.x ?? handleSourceX;
+  const sourceY = data?.sourcePoint?.y ?? handleSourceY;
+  const targetX = data?.targetPoint?.x ?? handleTargetX;
+  const targetY = data?.targetPoint?.y ?? handleTargetY;
   const [editingMultiplicity, setEditingMultiplicity] = useState<MultiplicityEnd | null>(null);
   const [editingRole, setEditingRole] = useState<MultiplicityEnd | null>(null);
   const originalMultiplicityRef = useRef('');

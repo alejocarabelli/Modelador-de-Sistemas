@@ -5,6 +5,7 @@ import { normalizeAssociationData } from './association';
 import {
   buildAssociationPath,
   buildSelfAssociationPath,
+  distributeAssociationEnds,
   getAssociationCenterLabelPosition,
   resolveAssociationHandles,
   resolveAutomaticNoteHandles,
@@ -226,5 +227,41 @@ describe('resolveRenderedAssociationHandles', () => {
   it('gives a self-relation without ports the corner loop', () => {
     expect(resolveRenderedAssociationHandles({ ...automaticEdge, target: 'source' }, left, left))
       .toEqual({ sourceHandle: 'right-start', targetHandle: 'top-end' });
+  });
+});
+
+describe('distributeAssociationEnds', () => {
+  const box = (x: number, y: number) => ({ position: { x, y }, width: 200, height: 200 });
+  const edge = (id: string, target: string, extra: Partial<ClassDiagramEdge> = {}): ClassDiagramEdge => ({
+    ...automaticEdge, id, source: 'hub', target, ...extra,
+  });
+
+  it('spreads relations that leave by the same side, in the order of their classes', () => {
+    const geometry = new Map([
+      ['hub', box(0, 0)],
+      ['a', box(600, -150)],
+      ['b', box(600, -60)],
+      ['c', box(600, 60)],
+      ['d', box(600, 150)],
+    ]);
+    const ids = ['to-a', 'to-b', 'to-c', 'to-d'];
+    const ends = distributeAssociationEnds([edge('to-c', 'c'), edge('to-a', 'a'), edge('to-d', 'd'), edge('to-b', 'b')], geometry);
+    expect(ids.map((id) => ends.get(id)!.sourcePoint!.y)).toEqual([40, 80, 120, 160]);
+    expect(ids.every((id) => ends.get(id)!.sourcePoint!.x === 200)).toBe(true);
+  });
+
+  it('leaves a lone relation and hand-placed ports where they are', () => {
+    const geometry = new Map([['hub', box(0, 0)], ['b', box(500, 0)]]);
+    expect(distributeAssociationEnds([edge('only', 'b')], geometry).get('only')!.sourcePoint).toBeUndefined();
+  });
+
+  it('moves a self-relation loop off a port another relation uses', () => {
+    const geometry = new Map([['hub', box(0, 0)], ['b', box(500, 0)]]);
+    const straight = edge('straight', 'b', { sourceHandle: 'right', targetHandle: 'left' });
+    const loop = edge('loop', 'hub', { sourceHandle: 'right', targetHandle: 'top' });
+    const ends = distributeAssociationEnds([straight, loop], geometry);
+    expect(ends.get('straight')!.sourcePoint).toBeUndefined();
+    expect(ends.get('loop')!.sourcePoint).toBeDefined();
+    expect(ends.get('loop')!.sourcePoint!.y).not.toBe(100);
   });
 });

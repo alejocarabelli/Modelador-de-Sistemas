@@ -15,7 +15,7 @@ import { useLiveProjects } from '../hooks/useLiveProjects';
 import { readCanvasGridEnabled } from '../storage/uiPreferences';
 import { focusArtifactInMainWindow } from '../storage/nativeWindows';
 import { normalizeAssociationEdge } from '../utils/association';
-import { resolveRenderedAssociationHandles } from '../utils/associationRouting';
+import { distributeAssociationEnds } from '../utils/associationRouting';
 import { normalizeDiagramContent, normalizeUseCaseModelContent } from '../utils/diagramNormalization';
 import { analyzeSequenceDiagramSemantics } from '../utils/sequenceDiagram';
 import { buildSequenceLayout } from '../utils/sequenceDiagramLayout';
@@ -75,35 +75,34 @@ function ClassModelViewer({ artifact }: { artifact: ClassModelArtifact }) {
     }));
   }, [content.nodes, nodeSizes]);
 
-  const edges = useMemo<Edge[]>(() => content.edges.map((rawEdge) => {
-    const edge = normalizeAssociationEdge(rawEdge);
-    const geometry = (nodeId: string) => {
-      const node = content.nodes.find((candidate) => candidate.id === nodeId);
-      return node === undefined ? undefined : { position: node.position, ...nodeSizes[node.id] };
-    };
-    const sourceGeometry = geometry(edge.source);
-    const targetGeometry = geometry(edge.target);
-    return {
-      ...edge,
-      ...(sourceGeometry !== undefined && targetGeometry !== undefined
-        ? resolveRenderedAssociationHandles(edge, sourceGeometry, targetGeometry)
-        : {}),
-      selectable: false,
-      data: {
-        ...edge.data,
-        routingObstacles: content.nodes.map((node) => {
-          // Same clearance the editor uses: 2px inside the ends, 8px around the rest.
-          const inset = node.id === edge.source || node.id === edge.target ? 2 : -8;
-          return {
-            x: node.position.x + inset,
-            y: node.position.y + inset,
-            width: (nodeSizes[node.id]?.width ?? 220) - inset * 2,
-            height: (nodeSizes[node.id]?.height ?? 100) - inset * 2,
-          };
-        }),
-      },
-    };
-  }), [content.edges, content.nodes, nodeSizes]);
+  const edges = useMemo<Edge[]>(() => {
+    const normalized = content.edges.map(normalizeAssociationEdge);
+    const geometryById = new Map(content.nodes.map((node) => [node.id, { position: node.position, ...nodeSizes[node.id] }]));
+    const endsByEdge = distributeAssociationEnds(normalized, geometryById);
+    return normalized.map((edge) => {
+      const ends = endsByEdge.get(edge.id);
+      return {
+        ...edge,
+        ...(ends === undefined ? {} : { sourceHandle: ends.sourceHandle, targetHandle: ends.targetHandle }),
+        selectable: false,
+        data: {
+          ...edge.data,
+          sourcePoint: ends?.sourcePoint,
+          targetPoint: ends?.targetPoint,
+          routingObstacles: content.nodes.map((node) => {
+            // Same clearance the editor uses: 2px inside the ends, 8px around the rest.
+            const inset = node.id === edge.source || node.id === edge.target ? 2 : -8;
+            return {
+              x: node.position.x + inset,
+              y: node.position.y + inset,
+              width: (nodeSizes[node.id]?.width ?? 220) - inset * 2,
+              height: (nodeSizes[node.id]?.height ?? 100) - inset * 2,
+            };
+          }),
+        },
+      };
+    });
+  }, [content.edges, content.nodes, nodeSizes]);
 
   const handleNodesChange = useCallback((changes: NodeChange[]): void => {
     const measured = changes.filter((change) => change.type === 'dimensions' && change.dimensions);

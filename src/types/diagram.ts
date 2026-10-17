@@ -105,6 +105,9 @@ export type AssociationConnectionSide = 'automatic' | ConnectionSide;
 export type AssociationEdgeData = {
   labelOffset?: XYPosition;
   routingObstacles?: Array<{ x: number; y: number; width: number; height: number }>;
+  /** Render-only: where an end spread along a crowded side meets its class. */
+  sourcePoint?: XYPosition;
+  targetPoint?: XYPosition;
   onUpdateLabel?: (edgeId: string, values: Partial<AssociationEdgeData>) => void;
   onUpdateAssociation?: (edgeId: string, values: Partial<AssociationEdgeData>) => void;
   name: string;
