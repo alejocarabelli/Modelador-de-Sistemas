@@ -178,6 +178,122 @@ export const resolveRenderedAssociationHandles = (
   };
 };
 
+const HANDLE_FRACTION: Record<string, number> = { start: 0.2, center: 0.5, end: 0.8 };
+
+const handleFraction = (handleId: string): number => {
+  const slot = handleId.split('-')[1] ?? 'center';
+  return HANDLE_FRACTION[slot] ?? 0.5;
+};
+
+const pointOnSide = (node: NodeGeometry, side: ConnectionSide, fraction: number): XYPosition => {
+  const { width, height } = getDimensions(node);
+  const { x, y } = node.position;
+  if (side === 'top') return { x: x + width * fraction, y };
+  if (side === 'bottom') return { x: x + width * fraction, y: y + height };
+  if (side === 'left') return { x, y: y + height * fraction };
+  return { x: x + width, y: y + height * fraction };
+};
+
+export type DistributedAssociationEnds = {
+  sourceHandle: string;
+  targetHandle: string;
+  /** Present when this end was spread along a crowded side: draw it here instead of at the handle. */
+  sourcePoint?: XYPosition;
+  targetPoint?: XYPosition;
+};
+
+type AssociationEnd = {
+  edgeId: string;
+  end: 'source' | 'target';
+  nodeId: string;
+  side: ConnectionSide;
+  /** Where along the side the end sits now (0–1), and whether it was chosen by hand. */
+  fraction: number;
+  fixed: boolean;
+  /** Coordinate of the other class along this side, to keep lines from crossing. */
+  order: number;
+};
+
+/**
+ * The ends of every relation, spread so that no two share a point. A stored
+ * port stays where it is; ends the app chooses (relations written without
+ * ports, often by an AI) are laid out evenly along the side they leave by,
+ * ordered by where the other class sits, so a class with many relations shows
+ * each one apart instead of piling them on one or two ports.
+ */
+export const distributeAssociationEnds = (
+  edges: readonly ClassDiagramEdge[],
+  geometryById: ReadonlyMap<string, NodeGeometry>,
+): Map<string, DistributedAssociationEnds> => {
+  const result = new Map<string, DistributedAssociationEnds>();
+  const groups = new Map<string, AssociationEnd[]>();
+  const addEnd = (end: AssociationEnd): void => {
+    const key = `${end.nodeId}\u0000${end.side}`;
+    const group = groups.get(key) ?? [];
+    group.push(end);
+    groups.set(key, group);
+  };
+
+  edges.forEach((edge) => {
+    const source = geometryById.get(edge.source);
+    const target = geometryById.get(edge.target);
+    if (source === undefined || target === undefined) return;
+    const handles = resolveRenderedAssociationHandles(edge, source, target);
+    result.set(edge.id, handles);
+    // A self-relation's loop gives way on a crowded side, keeping to its corner
+    // (the top of a vertical side, the right of a horizontal one).
+    const selfLoop = edge.source === edge.target;
+    const sourceCenter = getNodeCenter(source);
+    const targetCenter = getNodeCenter(target);
+    ([
+      ['source', edge.source, handles.sourceHandle, isConnectionHandleId(edge.sourceHandle), targetCenter],
+      ['target', edge.target, handles.targetHandle, isConnectionHandleId(edge.targetHandle), sourceCenter],
+    ] as const).forEach(([end, nodeId, handle, stored, otherCenter]) => {
+      const side = getConnectionSideFromHandle(handle);
+      if (side === null) return;
+      const horizontalSide = side === 'top' || side === 'bottom';
+      addEnd({
+        edgeId: edge.id,
+        end,
+        nodeId,
+        side,
+        fraction: handleFraction(handle),
+        fixed: stored && !selfLoop,
+        order: selfLoop
+          ? (horizontalSide ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY)
+          : horizontalSide ? otherCenter.x : otherCenter.y,
+      });
+    });
+  });
+
+  groups.forEach((group) => {
+    const free = group.filter((end) => !end.fixed);
+    if (free.length === 0) return;
+    const fixed = group.filter((end) => end.fixed);
+    const crowded = group.length > 1 && new Set(group.map((end) => end.fraction)).size < group.length;
+    if (!crowded) return;
+    // Evenly spaced slots for the whole side; hand-placed ends keep their
+    // spot and take the nearest slot, the rest fill the others in order.
+    const slots = group.map((_, index) => (index + 1) / (group.length + 1));
+    fixed.forEach((end) => {
+      let nearest = 0;
+      slots.forEach((slot, index) => {
+        if (Math.abs(slot - end.fraction) < Math.abs(slots[nearest] - end.fraction)) nearest = index;
+      });
+      slots.splice(nearest, 1);
+    });
+    free.sort((a, b) => (a.order === b.order ? 0 : a.order < b.order ? -1 : 1)).forEach((end, index) => {
+      const node = geometryById.get(end.nodeId)!;
+      const handles = result.get(end.edgeId)!;
+      const point = pointOnSide(node, end.side, slots[index]);
+      if (end.end === 'source') handles.sourcePoint = point;
+      else handles.targetPoint = point;
+    });
+  });
+
+  return result;
+};
+
 export const resolveAutomaticNoteHandles = (
   classNode: NodeGeometry,
   noteNode: NodeGeometry,

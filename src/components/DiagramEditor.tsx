@@ -70,7 +70,7 @@ import { ASSOCIATION_RELATION_TYPES, getAssociationMarker, handleForSide, normal
 import {
   oppositeConnectionSide,
   resolveAutomaticNoteHandles,
-  resolveRenderedAssociationHandles,
+  distributeAssociationEnds,
 } from '../utils/associationRouting';
 import { normalizeClassNode, normalizeDiagramContent } from '../utils/diagramNormalization';
 import { AssociationEdge } from './AssociationEdge';
@@ -1328,15 +1328,12 @@ export function DiagramEditor({
         width: nodeSizes[node.id]?.width,
         height: nodeSizes[node.id]?.height,
       }]));
+      const endsByEdge = distributeAssociationEnds(normalizedEdges, geometryById);
       const associationEdges = normalizedEdges.map((edge) => {
-        const sourceGeometry = geometryById.get(edge.source);
-        const targetGeometry = geometryById.get(edge.target);
-        const handles = sourceGeometry !== undefined && targetGeometry !== undefined
-          ? resolveRenderedAssociationHandles(edge, sourceGeometry, targetGeometry)
-          : {};
+        const ends = endsByEdge.get(edge.id);
         return {
           ...edge,
-          ...handles,
+          ...(ends === undefined ? {} : { sourceHandle: ends.sourceHandle, targetHandle: ends.targetHandle }),
           selected: selectedEdgeIds.includes(edge.id),
           reconnectable: edge.id === selectedEdgeId,
           data: {
@@ -1344,6 +1341,8 @@ export function DiagramEditor({
             onUpdateMultiplicity: updateAssociationMultiplicity,
             onUpdateLabel: updateAssociation,
             onUpdateAssociation: updateAssociation,
+            sourcePoint: ends?.sourcePoint,
+            targetPoint: ends?.targetPoint,
             routingObstacles: nodes.map(node => {
               // Handles sit one pixel inside the class border. Other classes get an 8px clearance.
               const inset = node.id === edge.source || node.id === edge.target ? 2 : -8;
