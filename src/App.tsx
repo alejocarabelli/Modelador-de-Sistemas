@@ -20,8 +20,9 @@ import { ArtifactTabs } from './components/ArtifactTabs';
 import { useArtifactTabs } from './hooks/useArtifactTabs';
 import { artifactTabShortcut, closeArtifactTabs, closeOtherArtifactTabs, closeArtifactTabsToRight, openArtifactTab, resolveActiveTab, type ActiveTab, type ArtifactTabState } from './utils/artifactTabs';
 import { artifactViewKey, forgetArtifactView } from './utils/artifactViewMemory';
-import { downloadProjectFile } from './utils/projectFile';
-import { downloadArtifactFile, downloadTextFile } from './utils/artifactFile';
+import { downloadProjectFile, serializeProject } from './utils/projectFile';
+import { copyTextToClipboard } from './utils/clipboard';
+import { downloadArtifactFile, downloadTextFile, serializeArtifact } from './utils/artifactFile';
 import { relinkArtifactForProject } from './utils/artifactTransfer';
 import artifactGuide from '../docs/artifact-json-guide.md?raw';
 import { useProjects } from './hooks/useProjects';
@@ -1044,6 +1045,28 @@ function App() {
     if (artifact) void downloadArtifactFile(artifact);
   };
 
+  const [clipboardNotice, setClipboardNotice] = useState<string | null>(null);
+  const clipboardNoticeTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(clipboardNoticeTimer.current), []);
+
+  const copyJson = (text: string, what: string): void => {
+    void copyTextToClipboard(text).then((copied) => {
+      window.clearTimeout(clipboardNoticeTimer.current);
+      setClipboardNotice(copied ? `JSON ${what} copiado al portapapeles.` : `No se pudo copiar el JSON ${what}. Probá con Exportar.`);
+      clipboardNoticeTimer.current = window.setTimeout(() => setClipboardNotice(null), 2600);
+    });
+  };
+
+  const handleCopyProject = (projectId: string): void => {
+    const project = projects.find((candidate) => candidate.id === projectId);
+    if (project !== undefined) copyJson(serializeProject(project), 'del proyecto');
+  };
+
+  const handleCopyArtifact = (projectId: string, artifactId: string): void => {
+    const artifact = projects.find((project) => project.id === projectId)?.artifacts.find((candidate) => candidate.id === artifactId);
+    if (artifact) copyJson(serializeArtifact(artifact), 'del artefacto');
+  };
+
   const handleDownloadArtifactGuide = (): void => {
     void downloadTextFile(artifactGuide, 'guia-artefactos-ia.md', 'text/markdown;charset=utf-8');
   };
@@ -1133,6 +1156,8 @@ function App() {
         onCreateProject={handleCreateProject}
         onExportProject={handleExportProject}
         onExportArtifact={handleExportArtifact}
+        onCopyProject={handleCopyProject}
+        onCopyArtifact={handleCopyArtifact}
         onImportArtifact={(projectId) => setArtifactTransferDialog({ mode: 'import', projectId })}
         onMoveArtifact={(projectId, artifactId) => setArtifactTransferDialog({ mode: 'move', projectId, artifactId })}
         onConvertToSequenceModel={(projectId, artifactId) => { void handleConvertToSequenceModel(projectId, artifactId); }}
@@ -1205,6 +1230,7 @@ function App() {
                 saveStatus={saveStatus}
                 onRetry={() => void runBackupNow()}
                 onExport={() => handleExportProject(activeProject.id)}
+                onCopy={() => handleCopyProject(activeProject.id)}
               />
               <ClaudeProposalNotice
                 proposals={claudeProposals}
@@ -1239,7 +1265,7 @@ function App() {
                 ref={workspaceRef}
               >
                 <div id="artifact-editor-panel" className="artifact-editor-panel" role="tabpanel" aria-labelledby={`artifact-tab-${activeArtifact.id}`} tabIndex={-1}>
-                  <ArtifactErrorBoundary key={activeArtifact.id} onExportProject={() => handleExportProject(activeProject.id)}>
+                  <ArtifactErrorBoundary key={activeArtifact.id} onExportProject={() => handleExportProject(activeProject.id)} onCopyProject={() => handleCopyProject(activeProject.id)}>
                     <Suspense fallback={<EditorLoadingState />}>
                       {activeArtifact.type === 'class-diagram' ? (
                         <DiagramEditor
@@ -1433,6 +1459,9 @@ function App() {
             {activeProject === null ? null : <span>Hasta 50 MB por archivo.</span>}
           </div>
         </div>
+      ) : null}
+      {clipboardNotice !== null ? (
+        <div className="editor-feedback app-clipboard-feedback" role="status" aria-live="polite">{clipboardNotice}</div>
       ) : null}
     </div>
   );

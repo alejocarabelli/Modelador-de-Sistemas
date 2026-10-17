@@ -1313,3 +1313,10 @@
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
+
+/* "Copiado al portapapeles": the editor toast, but over the whole window. */
+.app-shell[data-ui-version='refined'] .app-clipboard-feedback {
+  bottom: 32px;
+  position: fixed;
+  z-index: 60;
+}

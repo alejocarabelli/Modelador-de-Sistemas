@@ -19,6 +19,8 @@ const render = (overrides: Partial<Parameters<typeof ProjectSidebar>[0]> = {}) =
       onDeleteProject={handler}
       onExportArtifact={handler}
       onExportProject={handler}
+      onCopyArtifact={handler}
+      onCopyProject={handler}
       onImportArtifact={handler}
       onMoveArtifact={handler}
       onOpenHome={handler}

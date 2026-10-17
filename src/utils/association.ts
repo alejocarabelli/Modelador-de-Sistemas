@@ -92,6 +92,19 @@ export const normalizeAssociationData = (data: AssociationDataInput | undefined)
     : [],
 });
 
+/**
+ * The port stored for one end. An explicit side keeps a port already on that
+ * side (its 20 %, 50 % or 80 % point), so several relations on one side stay
+ * apart; any other port moves to the side's centre.
+ */
+export const handleForSide = (
+  side: AssociationConnectionSide | undefined,
+  handle: string | null | undefined,
+): string | null | undefined => {
+  if (side === undefined || side === 'automatic') return handle;
+  return handle === side || handle === `${side}-start` || handle === `${side}-end` ? handle : side;
+};
+
 export const normalizeAssociationEdge = (edge: ClassDiagramEdge): ClassDiagramEdge => {
   const data = normalizeAssociationData(edge.data);
 
@@ -101,8 +114,8 @@ export const normalizeAssociationEdge = (edge: ClassDiagramEdge): ClassDiagramEd
     source: normalizeString(edge?.source),
     target: normalizeString(edge?.target),
     type: 'association',
-    sourceHandle: data.sourceSide === 'automatic' ? edge.sourceHandle : data.sourceSide,
-    targetHandle: data.targetSide === 'automatic' ? edge.targetHandle : data.targetSide,
+    sourceHandle: handleForSide(data.sourceSide, edge.sourceHandle),
+    targetHandle: handleForSide(data.targetSide, edge.targetHandle),
     data,
     markerStart: getAssociationMarker(data.navigability, 'source', data.relationType),
     markerEnd: getAssociationMarker(data.navigability, 'target', data.relationType),

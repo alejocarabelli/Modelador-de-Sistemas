@@ -110,33 +110,99 @@ Escribí explícitamente `navigability: "source-to-target"` para asociaciones na
 
 La navegabilidad configurable se dibuja para `relationType: "association"`. Para las otras relaciones, la representación depende de su tipo y de `diamondEnd` o `triangleEnd` cuando corresponda. No agregues multiplicidades a herencia, dependencia o realización para intentar mostrarlas como una asociación.
 
-#### Puntos de conexión y recorrido
+#### Puertos: dónde se engancha cada línea
 
-`sourceHandle` y `targetHandle` son campos de la relación, fuera de `data`. Admiten `"top"`, `"right"`, `"bottom"`, `"left"` y sus variantes `"-start"` / `"-end"`. Son puertos al 20 %, 50 % y 80 % del lado correspondiente; por ejemplo `"right-start"` se ubica en la parte superior del lado derecho.
+Cada clase tiene **12 puertos**, tres por lado, al 20 %, 50 % y 80 % de ese lado. `sourceHandle` y `targetHandle` (campos de la relación, fuera de `data`) eligen uno: `"top"`, `"right"`, `"bottom"`, `"left"` (centro del lado) o esos nombres con `"-start"` / `"-end"`. En los lados superior e inferior, `-start` es el puerto de la izquierda y `-end` el de la derecha; en los lados izquierdo y derecho, `-start` es el de arriba y `-end` el de abajo.
 
-- Para un recorrido automático, usá ambos lados de `data` como `"automatic"` y omití los handles. El editor elige los lados y puertos según las posiciones.
-- Para conservar puertos concretos, escribí handles válidos y mantené `sourceSide` / `targetSide` en `"automatic"`. El editor conserva esos handles.
-- Para fijar el centro de un lado, escribí ese lado en `sourceSide` / `targetSide` y el handle central correspondiente. Un lado explícito normaliza el handle al centro: no lo combines esperando que conserve un sufijo `-start` / `-end`.
-- `lineStyle: "orthogonal"` endereza los extremos casi alineados (hasta 12 px de diferencia) sobre una coordenada común y agrega codos en otros casos. Permite rodear clases; el enrutado no garantiza que todas las relaciones queden libres de cruces. `"straight"` une los extremos directamente. Los proyectos anteriores con `"automatic"`, sin estilo o con un valor inválido se normalizan a `"orthogonal"`.
-- Usá `waypoints: []` u omití ese campo. No bases la disposición en puntos intermedios manuales: el renderizado actual calcula el recorrido.
-- No escribas `markerStart`, `markerEnd`, SVG, `routingObstacles` ni estilos internos para forzar símbolos UML. Los símbolos se obtienen de `data`.
+Con una clase en `(x, y)` de ancho `W` y alto `H`, los puertos quedan exactamente en:
 
-### 2.3. Orden, tamaño y espaciado
+| Puerto | Coordenada |
+| --- | --- |
+| `top-start`, `top`, `top-end` | `(x + 0,2·W, y)`, `(x + 0,5·W, y)`, `(x + 0,8·W, y)` |
+| `bottom-start`, `bottom`, `bottom-end` | `(x + 0,2·W, y + H)`, `(x + 0,5·W, y + H)`, `(x + 0,8·W, y + H)` |
+| `left-start`, `left`, `left-end` | `(x, y + 0,2·H)`, `(x, y + 0,5·H)`, `(x, y + 0,8·H)` |
+| `right-start`, `right`, `right-end` | `(x + W, y + 0,2·H)`, `(x + W, y + 0,5·H)`, `(x + W, y + 0,8·H)` |
 
-1. Definí primero el modelo y luego la disposición. Ordená clases por grupos del dominio y operaciones por responsabilidad. Evitá duplicar una misma relación con nombres distintos sin una justificación del modelo.
-2. Organizá grupos en columnas o filas estables. Colocá las superclases encima de sus subclases. Para colaboraciones o pertenencia, seguí un sentido predominante de izquierda a derecha. Mantené las clases que más se relacionan próximas, con corredores para las líneas.
-3. Calculá espacio según el contenido. Las clases no tienen una medida fija: su nombre, atributos y firmas pueden ensancharlas o aumentar su altura. No uses un salto fijo de coordenadas sin revisar los textos.
-4. Estimá el tamaño real de cada clase (calibrado sobre el render actual): altura `H ≈ 75 + 20 × (atributos + métodos)` y ancho `W ≈ max(220, 65 + 6 × L)`, donde `L` es la cantidad de caracteres de la línea más larga (firma `nombre(parámetros) tipo`, `atributo tipo` o nombre de la clase). No uses estimaciones mucho mayores: los rectángulos reales quedan chicos dentro de huecos enormes y las relaciones se estiran.
-5. Dejá **120–160 unidades libres entre clases vecinas en horizontal y 100–120 en vertical**, medidas entre bordes estimados. Es suficiente para multiplicidades; ampliá solo si hay roles o nombres de relación largos.
-6. Usá una grilla de columnas y filas. **Centrá cada clase dentro de su columna** (mismo centro X) y **centrala verticalmente dentro de su fila** (mismo centro Y). Así las relaciones entre vecinas de la misma columna o fila quedan rectas. Calculá el ancho de cada columna con la clase más ancha y la altura de cada fila con la clase más alta.
-7. **Ubicá juntas las clases relacionadas**: cada asociación debería unir clases vecinas en la misma fila o columna. Buscá ciclos de relaciones (A–B–C–D–A) y ubicalos como rectángulos de la grilla. Dejá para el final las pocas relaciones que no puedan ser vecinas.
-8. **No dejes los lados en `"automatic"` en un diagrama importado**: el enrutado automático tiende a sacar varias líneas por el borde superior y rodear el diagrama. Para vecinas horizontales usá `sourceSide`/`targetSide` `"right"`→`"left"` (o al revés) con los handles centrales y `lineStyle: "straight"`; para vecinas verticales, `"bottom"`→`"top"`. Para una relación entre clases no vecinas, usá handles `-start`/`-end` en un lado libre, dejá los lados en `"automatic"` y `lineStyle: "orthogonal"`, y verificá que el recorrido pase por un corredor vacío. Varias relaciones que llegan a una misma clase por el mismo lado van por `-start`, centro y `-end`.
-9. No escales todo para meterlo en una pantalla: un diagrama grande se recorre con zoom y desplazamiento. Priorizá la legibilidad a escala normal. Para dominios muy grandes, acordá una división lógica en varios artefactos antes de generar archivos independientes.
-10. Revisá todos los pares de rectángulos reservados: no deben intersectarse. Revisá los corredores de cada relación y el área de notas. La aplicación importa las coordenadas tal como están; confirmar el resultado visual es parte de la entrega.
+- **Lado fijo** (`sourceSide` / `targetSide` = `"top"`, `"right"`, `"bottom"` o `"left"`): la línea sale de ese lado. Si el handle es un puerto de ese mismo lado (`"right-start"` con `sourceSide: "right"`), se respeta; si no, se usa el centro del lado.
+- **Lado `"automatic"` con handle**: se usa el handle tal cual.
+- **Lado `"automatic"` sin handle**: la aplicación elige el lado que mira a la otra clase y, sobre ese lado, el puerto más cercano a ella. Es la opción segura para relaciones diagonales.
+- Nunca dejes dos relaciones en el **mismo puerto** de una clase: las flechas y las multiplicidades se pisan. Si dos relaciones salen por el mismo lado, una va al centro y la otra a `-start` o `-end`; tres, por `-start`, centro y `-end`.
+
+#### Recta o con codos
+
+`lineStyle` decide cómo se dibuja el recorrido entre los dos puertos:
+
+- `"straight"` (Recto) traza **un solo segmento** entre los dos puertos. Si están alineados, es una línea recta horizontal o vertical; si no, queda en diagonal.
+- `"orthogonal"` (Con codos, el valor por omisión) traza una línea **recta** cuando los dos puertos se enfrentan (derecho con izquierdo, inferior con superior) y difieren en 12 unidades o menos en la otra coordenada. En cualquier otro caso dibuja tramos horizontales y verticales, y rodea las clases que estorban.
+
+Por eso **la recta no depende del estilo, sino de la alineación**: para que una relación entre vecinas sea recta, sus dos puertos deben tener la misma Y (vecinas en la misma fila) o la misma X (vecinas en la misma columna). Centrá cada clase en su fila y en su columna, como se explica abajo, y las relaciones entre vecinas salen rectas.
+
+- Vecinas alineadas: lados fijos enfrentados (`"right"`→`"left"` o `"bottom"`→`"top"`), handles centrales y `lineStyle: "straight"`.
+- Clases en diagonal o lejanas: lados `"automatic"`, sin handles (o con un `-start` / `-end` libre) y `lineStyle: "orthogonal"`. Se dibujan como una L o una Z por el pasillo libre entre clases. Nunca uses `"straight"` en ellas: quedaría una diagonal que cruza el diagrama.
+- Proyectos anteriores con `"automatic"`, sin estilo o con un valor inválido se normalizan a `"orthogonal"`.
+- Usá `waypoints: []` u omití ese campo; el recorrido lo calcula la aplicación. No escribas `markerStart`, `markerEnd`, SVG, `routingObstacles` ni estilos internos: los símbolos UML salen de `data`.
+
+### 2.3. Disposición: cómo pensar el espacio
+
+La aplicación dibuja cada clase en la coordenada que escribas y no reordena nada al importar. Antes de escribir coordenadas, armá el plano completo: tamaño real de cada clase, una grilla, quién va al lado de quién y por qué puerto entra cada relación.
+
+#### Paso 1. Tamaño real de cada clase
+
+Estas medidas son las del dibujo real (con la tipografía de la aplicación):
+
+- **Ancho**: `W = max(220, 65 + 6 × L)`, donde `L` es la cantidad de caracteres de la línea más larga, contando el nombre de la clase, cada atributo como `nombre: Tipo` y cada método como `nombre(parámetros): Tipo`.
+- **Alto**, con `a` atributos y `m` métodos:
+  - sin métodos: `H = 56 + 21 × max(a, 1)`;
+  - con métodos: `H = 71 + 21 × (max(a, 1) + m)`.
+
+Ejemplos medidos: una clase con 2 atributos y ningún método mide 220 × 98; con 3 atributos y 2 métodos, 220 × 176; una con `descripcionDelProductoSeleccionado: String` mide 317 de ancho. Si ocultás compartimentos (`hideAttributes`, `hideMethods`), no los cuentes.
+
+#### Paso 2. Elegí la clase central y sus vecinas
+
+1. Contá cuántas relaciones tiene cada clase. La que tiene más (el «hub», por ejemplo `Pedido`) va en el **centro** del diagrama, no en una esquina.
+2. Cada clase tiene **cuatro vecinas directas**: arriba, abajo, izquierda y derecha. Esas relaciones salen rectas, una por lado, por el puerto central. Asigná primero esos cuatro lugares a las relaciones más importantes del hub.
+   - Superclases, arriba de sus subclases.
+   - El todo de una composición o agregación, a la izquierda o arriba de sus partes.
+   - Las asociaciones de colaboración, de izquierda a derecha.
+3. Las relaciones que sobran van a clases ubicadas en las **diagonales** (arriba a la izquierda, abajo a la derecha…). Se dibujan con lado automático como una L o una Z por el pasillo, con su propio puerto `-start` o `-end`. Hasta 4 relaciones rectas y 2 a 4 diagonales por clase se leen bien.
+4. Si una clase de las vecinas tiene a su vez otra relación, encadenala: ponela al lado de esa vecina, no del hub. Por ejemplo, `Producto` va arriba de `LineaPedido`, no conectada al hub.
+5. Si una clase supera las 8 relaciones, es una señal de diseño. Revisá si todas son necesarias (por ejemplo, un DTO o una pantalla no se asocian con todas las entidades), o acordá dividir el modelo en dos diagramas.
+
+**Nunca hagas que todas las relaciones lleguen a una misma clase por el mismo lado ni por el mismo puerto.** Esa es la causa principal de los diagramas ilegibles: líneas superpuestas, multiplicidades encimadas y flechas que no se distinguen.
+
+#### Paso 3. Grilla de filas y columnas
+
+1. Ubicá las clases en una grilla. El **ancho de cada columna** es el de su clase más ancha y el **alto de cada fila**, el de su clase más alta.
+2. Entre columnas dejá un **pasillo de 160 a 180** unidades libres (de borde a borde) y entre filas, **110 a 140**. Por esos pasillos pasan las relaciones diagonales y se escriben las multiplicidades y los nombres. Si una relación tiene nombre y roles largos, ensanchá ese pasillo.
+3. **Centrá cada clase en su columna y en su fila**: todas las clases de una columna comparten el mismo centro X y todas las de una fila, el mismo centro Y. Así las relaciones entre vecinas son rectas.
+   - Centro de columna `cx`: `position.x = cx − W / 2`.
+   - Centro de fila `cy`: `position.y = cy − H / 2`.
+   - Si `W` o `H` es impar, redondeá la posición al entero más cercano: el margen de 12 unidades absorbe la diferencia.
+4. La primera columna puede empezar en `x = 100` y la primera fila en `y = 100`.
+
+#### Paso 4. Escribí cada relación con sus puertos
+
+- Vecinas en la misma fila: `sourceSide: "right"`, `targetSide: "left"` (o al revés), `sourceHandle: "right"`, `targetHandle: "left"`, `lineStyle: "straight"`.
+- Vecinas en la misma columna: `"bottom"` → `"top"` (o al revés), con los mismos handles y `lineStyle: "straight"`.
+- Diagonales y lejanas: `sourceSide` y `targetSide` en `"automatic"`, sin handles, `lineStyle: "orthogonal"`. Si dos diagonales salen por el mismo lado del hub, dales handles distintos (`-start` y `-end`).
+- Una autorrelación usa `sourceSide` y `targetSide` en lados vecinos (`"right"` y `"top"`): el lazo rodea esa esquina. Dejá libre esa esquina.
+
+#### Paso 5. Verificá antes de entregar
+
+1. Ningún par de rectángulos (con el tamaño del paso 1) se toca ni invade el pasillo mínimo.
+2. Cada relación recta une dos clases vecinas alineadas, y entre ellas no hay otra clase.
+3. Ninguna clase recibe dos relaciones en el mismo puerto.
+4. Las relaciones diagonales tienen un pasillo libre para su L o su Z.
+5. No escales todo para que entre en una pantalla: el diagrama se recorre con zoom y desplazamiento. Priorizá la legibilidad a escala normal.
 
 ### 2.4. Ejemplo completo e importable
 
-Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composición. Sigue la grilla de la sección 2.3: dos filas y tres columnas de 220 de ancho, clases centradas en su fila y su columna, corredores de 140 × 110 y lados explícitos para que las relaciones entre vecinas queden rectas.
+Ejemplo con una clase central de 7 relaciones. La grilla tiene tres columnas de 220 de ancho centradas en X = 210, 610 y 1010 (pasillos de 180) y tres filas centradas en Y = 150, 430 y 700 (pasillos de 110 o más).
+
+- `Pedido` (220 × 176) está en el centro.
+- Sus cuatro vecinas directas son `Cliente` (izquierda), `LineaPedido` (derecha, composición), `Sucursal` (arriba) y `Pago` (abajo): relaciones rectas, con lados fijos y handles centrales.
+- `Producto` se encadena arriba de `LineaPedido`, no del hub.
+- `Vendedor` y `Envio` están en diagonales: lados automáticos y `lineStyle: "orthogonal"`, dibujadas como una Z por los pasillos.
 
 ```json
 {
@@ -145,30 +211,87 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
   "content": {
     "nodes": [
       {
-        "id": "clase-entidad",
+        "id": "clase-vendedor",
         "type": "classNode",
         "position": {
           "x": 100,
-          "y": 110
+          "y": 101
         },
         "data": {
-          "name": "EntidadComercial",
-          "description": "Identidad común de las entidades comerciales.",
-          "groupColor": "blue",
+          "name": "Vendedor",
+          "description": "Empleado que toma el pedido.",
+          "groupColor": "amber",
           "attributes": [
             {
-              "id": "entidad-id",
-              "name": "id",
-              "type": "UUID"
+              "id": "vendedor-nombre",
+              "name": "nombre",
+              "type": "String"
+            },
+            {
+              "id": "vendedor-legajo",
+              "name": "legajo",
+              "type": "Integer"
+            }
+          ],
+          "methods": []
+        }
+      },
+      {
+        "id": "clase-sucursal",
+        "type": "classNode",
+        "position": {
+          "x": 500,
+          "y": 101
+        },
+        "data": {
+          "name": "Sucursal",
+          "description": "Sucursal que despacha el pedido.",
+          "groupColor": "amber",
+          "attributes": [
+            {
+              "id": "sucursal-nombre",
+              "name": "nombre",
+              "type": "String"
+            },
+            {
+              "id": "sucursal-direccion",
+              "name": "direccion",
+              "type": "String"
+            }
+          ],
+          "methods": []
+        }
+      },
+      {
+        "id": "clase-producto",
+        "type": "classNode",
+        "position": {
+          "x": 900,
+          "y": 83
+        },
+        "data": {
+          "name": "Producto",
+          "description": "Producto del catálogo; puede aparecer en muchas líneas de pedido.",
+          "groupColor": "green",
+          "attributes": [
+            {
+              "id": "producto-nombre",
+              "name": "nombre",
+              "type": "String"
+            },
+            {
+              "id": "producto-precio",
+              "name": "precio",
+              "type": "Decimal"
             }
           ],
           "methods": [
             {
-              "id": "entidad-get-id",
+              "id": "producto-precio-actual",
               "visibility": "+",
-              "name": "getId",
+              "name": "precioActual",
               "parameters": "",
-              "returnType": "UUID"
+              "returnType": "Decimal"
             }
           ]
         }
@@ -178,7 +301,7 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
         "type": "classNode",
         "position": {
           "x": 100,
-          "y": 365
+          "y": 363
         },
         "data": {
           "name": "Cliente",
@@ -211,8 +334,8 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
         "id": "clase-pedido",
         "type": "classNode",
         "position": {
-          "x": 460,
-          "y": 345
+          "x": 500,
+          "y": 342
         },
         "data": {
           "name": "Pedido",
@@ -257,8 +380,8 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
         "id": "clase-linea-pedido",
         "type": "classNode",
         "position": {
-          "x": 820,
-          "y": 365
+          "x": 900,
+          "y": 363
         },
         "data": {
           "name": "LineaPedido",
@@ -271,7 +394,7 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
               "type": "Integer"
             },
             {
-              "id": "linea-precio",
+              "id": "linea-preciounitario",
               "name": "precioUnitario",
               "type": "Decimal"
             }
@@ -288,62 +411,59 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
         }
       },
       {
-        "id": "clase-producto",
+        "id": "clase-pago",
         "type": "classNode",
         "position": {
-          "x": 820,
-          "y": 100
+          "x": 500,
+          "y": 651
         },
         "data": {
-          "name": "Producto",
-          "description": "Producto del catálogo; puede aparecer en muchas líneas de pedido.",
-          "groupColor": "green",
+          "name": "Pago",
+          "description": "Pago registrado para el pedido.",
+          "groupColor": "violet",
           "attributes": [
             {
-              "id": "producto-nombre",
-              "name": "nombre",
+              "id": "pago-monto",
+              "name": "monto",
+              "type": "Decimal"
+            },
+            {
+              "id": "pago-fecha",
+              "name": "fecha",
+              "type": "Date"
+            }
+          ],
+          "methods": []
+        }
+      },
+      {
+        "id": "clase-envio",
+        "type": "classNode",
+        "position": {
+          "x": 900,
+          "y": 651
+        },
+        "data": {
+          "name": "Envio",
+          "description": "Envío a domicilio del pedido.",
+          "groupColor": "violet",
+          "attributes": [
+            {
+              "id": "envio-direccion",
+              "name": "direccion",
               "type": "String"
             },
             {
-              "id": "producto-precio",
-              "name": "precio",
-              "type": "Decimal"
+              "id": "envio-fechaestimada",
+              "name": "fechaEstimada",
+              "type": "Date"
             }
           ],
-          "methods": [
-            {
-              "id": "producto-precio-actual",
-              "visibility": "+",
-              "name": "precioActual",
-              "parameters": "",
-              "returnType": "Decimal"
-            }
-          ]
+          "methods": []
         }
       }
     ],
     "edges": [
-      {
-        "id": "rel-cliente-entidad",
-        "type": "association",
-        "source": "clase-cliente",
-        "target": "clase-entidad",
-        "sourceHandle": "top",
-        "targetHandle": "bottom",
-        "data": {
-          "relationType": "generalization",
-          "triangleEnd": "target",
-          "navigability": "none",
-          "name": "",
-          "sourceMultiplicity": "",
-          "targetMultiplicity": "",
-          "sourceRole": "",
-          "targetRole": "",
-          "sourceSide": "top",
-          "targetSide": "bottom",
-          "lineStyle": "straight"
-        }
-      },
       {
         "id": "rel-cliente-pedido",
         "type": "association",
@@ -357,8 +477,8 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
           "name": "realiza",
           "sourceMultiplicity": "1",
           "targetMultiplicity": "0..*",
-          "sourceRole": "cliente",
-          "targetRole": "pedidos",
+          "sourceRole": "",
+          "targetRole": "",
           "sourceSide": "right",
           "targetSide": "left",
           "lineStyle": "straight"
@@ -378,8 +498,8 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
           "name": "contiene",
           "sourceMultiplicity": "1",
           "targetMultiplicity": "1..*",
-          "sourceRole": "pedido",
-          "targetRole": "lineas",
+          "sourceRole": "",
+          "targetRole": "",
           "sourceSide": "right",
           "targetSide": "left",
           "lineStyle": "straight"
@@ -398,11 +518,87 @@ Este ejemplo incluye cinco clases, herencia, asociaciones navegables y composici
           "name": "corresponde a",
           "sourceMultiplicity": "0..*",
           "targetMultiplicity": "1",
-          "sourceRole": "lineas",
-          "targetRole": "producto",
+          "sourceRole": "",
+          "targetRole": "",
           "sourceSide": "top",
           "targetSide": "bottom",
           "lineStyle": "straight"
+        }
+      },
+      {
+        "id": "rel-pedido-sucursal",
+        "type": "association",
+        "source": "clase-pedido",
+        "target": "clase-sucursal",
+        "sourceHandle": "top",
+        "targetHandle": "bottom",
+        "data": {
+          "relationType": "association",
+          "navigability": "source-to-target",
+          "name": "se despacha desde",
+          "sourceMultiplicity": "0..*",
+          "targetMultiplicity": "1",
+          "sourceRole": "",
+          "targetRole": "",
+          "sourceSide": "top",
+          "targetSide": "bottom",
+          "lineStyle": "straight"
+        }
+      },
+      {
+        "id": "rel-pedido-pago",
+        "type": "association",
+        "source": "clase-pedido",
+        "target": "clase-pago",
+        "sourceHandle": "bottom",
+        "targetHandle": "top",
+        "data": {
+          "relationType": "association",
+          "navigability": "source-to-target",
+          "name": "se paga con",
+          "sourceMultiplicity": "1",
+          "targetMultiplicity": "0..1",
+          "sourceRole": "",
+          "targetRole": "",
+          "sourceSide": "bottom",
+          "targetSide": "top",
+          "lineStyle": "straight"
+        }
+      },
+      {
+        "id": "rel-pedido-vendedor",
+        "type": "association",
+        "source": "clase-pedido",
+        "target": "clase-vendedor",
+        "data": {
+          "relationType": "association",
+          "navigability": "source-to-target",
+          "name": "tomado por",
+          "sourceMultiplicity": "0..*",
+          "targetMultiplicity": "1",
+          "sourceRole": "",
+          "targetRole": "",
+          "sourceSide": "automatic",
+          "targetSide": "automatic",
+          "lineStyle": "orthogonal"
+        }
+      },
+      {
+        "id": "rel-pedido-envio",
+        "type": "association",
+        "source": "clase-pedido",
+        "target": "clase-envio",
+        "data": {
+          "relationType": "association",
+          "navigability": "source-to-target",
+          "name": "se entrega con",
+          "sourceMultiplicity": "1",
+          "targetMultiplicity": "0..1",
+          "sourceRole": "",
+          "targetRole": "",
+          "sourceSide": "automatic",
+          "targetSide": "automatic",
+          "lineStyle": "orthogonal"
         }
       }
     ]
@@ -753,27 +949,58 @@ En un `ref`, conservá el nombre de la interacción referenciada y usá un `inte
 
 Para activaciones automáticas, dejá `activations: []` y `showActivations: true`. Si necesitás una activación manual, sus campos son: `id`, `participantId`, `startMessageId`, `endMessageId` opcional, `level` (entero de 0 a 12) y `manual: true`. `endScope` opcional puede indicar `{ "fragmentId": ..., "operandId": ... }` para cerrar en el límite de un operando. Todas las referencias deben existir y pertenecer a un camino temporal válido; no uses un número de fila como ID de mensaje.
 
-Una nota tiene `id`, `text`, `x`, `y`, `width`, `height`, `anchorKind` y, opcionalmente, `anchorId` y `color`.
+Una nota tiene `id`, `text`, `width`, `height`, `anchorKind` y, opcionalmente, `x`, `y`, `anchorId` y `color`.
 
 - `anchorKind`: `free`, `message`, `fragment` o `participant`. Para una nota vinculada, `anchorId` debe ser el ID del elemento del tipo indicado. Para una nota libre, omití `anchorId`.
 - `color`: `yellow`, `red`, `green` o `blue`. No se aceptan colores arbitrarios.
-- `x/y` son la esquina de la nota en el lienzo, incluso cuando está anclada. Un ancla une la nota con el elemento; no convierte las coordenadas en un desplazamiento relativo.
-- Mínimos normalizados: 120 de ancho y 70 de alto. Reservá una altura suficiente para todas las líneas del texto; una medida habitual es 220 × 110.
+- **Omití `x` e `y` en las notas ancladas.** Al importar, la aplicación la ubica sola, sin tapar mensajes, marcos ni otras notas:
+  - nota de un mensaje: 44 unidades a la derecha de la línea de vida más a la derecha del mensaje, a la altura de su flecha, y por fuera de cualquier fragmento que la tape;
+  - nota de un fragmento: a la derecha del marco, a la altura de su pestaña;
+  - nota de un participante: al lado de su línea de vida, debajo de los encabezados;
+  - nota libre: a la derecha de todo el diagrama.
+  
+  Si varias notas caerían en el mismo lugar, se apilan hacia abajo.
+- Si igual escribís `x` / `y`, son la esquina superior izquierda en el lienzo, también para las notas ancladas: el ancla no convierte las coordenadas en un desplazamiento. Una nota con coordenadas inventadas queda lejos de su mensaje; por eso conviene omitirlas.
+- Mínimos normalizados: 120 de ancho y 70 de alto. Una medida habitual es 220 × 110; el alto crece solo si el texto no entra.
 
-### 5.5. Orden y espaciado
+### 5.5. Orden y espaciado: cómo queda el dibujo
 
-1. Colocá el actor principal a la izquierda, interfaces/boundaries después, controles en el centro y entidades a la derecha cuando ese orden represente las responsabilidades del escenario. No agregues estereotipos que no estén justificados.
-2. Una separación de centros de 320–440 suele ser legible con nombres cortos. El mínimo de interacción de 180 no garantiza espacio para encabezados largos o mensajes extensos.
-3. Reservá el ancho de ambos encabezados: `xSiguiente >= xActual + WActual/2 + WSiguiente/2 + margen`, con al menos 100 de margen. El renderer estima el ancho con unas 6,3 unidades por carácter más 28 de borde, y tiene mínimos de 112 para actores y 160 para otros participantes. Es una estimación; revisá los nombres largos visualmente.
-4. Aumentá la separación cuando las firmas no entren entre líneas de vida. No recortes ni abreviés el significado para esconder un error del modelo; sí evitá anotaciones redundantes.
-5. Escribí el orden temporal en `items` y en los `items` de cada operando. No inventes `y` en mensajes: el layout deja espacio para etiquetas, retornos, autollamadas, activaciones y fragmentos.
-6. Colocá notas fuera de los corredores de mensajes y encabezados. El lienzo debe incluir el extremo derecho de la última nota y el fondo del contenido.
-7. Usá fragmentos automáticos como punto de partida. La geometría manual de un padre y un hijo no representa una relación de coordenadas relativas.
+En una secuencia **no se escriben coordenadas verticales**. La posición de cada mensaje sale solo del orden de `items`; las únicas coordenadas que decidís son las `x` de los participantes (y, si querés, las de las notas). Pensá el diagrama como una tabla: las columnas son los participantes y las filas, los mensajes en orden.
+
+#### Columnas: participantes
+
+1. Ordená los participantes de izquierda a derecha **en el orden en que intervienen por primera vez**: actor, interfaz (boundary), control, expertos y entidades. Así casi todos los mensajes van hacia la derecha y unen columnas vecinas.
+2. Los objetos creados durante la interacción van a la derecha de quien los crea, en el orden en que se crean.
+3. Ancho del encabezado: `ancho = max(mínimo, 28 + 6,3 × caracteres)`, con mínimo 112 para actores y 160 para el resto. El texto es `nombre : Clasificador` (o `:Clasificador` sin nombre de instancia).
+4. Separación entre centros consecutivos: `xSiguiente ≥ xActual + anchoActual / 2 + anchoSiguiente / 2 + 100`, y nunca menos de 180. Con nombres cortos, 300 a 360 entre centros deja aire para las firmas.
+5. El primer participante va en `x = 140` (actor) o en `x = 120 + ancho / 2`.
+
+#### Filas: mensajes (espaciado normal)
+
+El dibujo apila los elementos de `items` de arriba hacia abajo:
+
+- **Inicio**: la primera fila empieza en `inicio = max(134, 34 + altoEncabezado + 42)`. Con un actor el encabezado mide 80 y el inicio es 156.
+- **Mensaje**: ocupa una fila de 58 de alto (84 si es una autollamada; más si su etiqueta ocupa varias líneas) y su flecha va en el centro de la fila.
+- **Fragmento**: pestaña de 26; cada operando con guarda suma 24 (12 sin guarda, o en `loop` / `opt`, cuya condición va en la pestaña); un operando vacío, 42. Después de su último mensaje deja 20 de margen y otros 20 antes del elemento siguiente.
+
+Ejemplo: actor, `m1`, `m2`, `loop` con una autollamada `m3`, y el retorno `r2`. Las flechas quedan en Y = 185, 243, 352 y 463; el `loop` va de 272 a 414.
+
+Con `spacing: "compact"` las filas miden 38 (mensaje de una línea), 68 (autollamada) y 32 (retorno), con la flecha 28 unidades debajo del comienzo de la fila (10 en un retorno).
+
+#### Reglas para que cada mensaje quede donde corresponde
+
+1. **El orden de `items` es el orden del dibujo.** Cada mensaje va inmediatamente después del que lo provoca, y cada retorno, justo después del último mensaje de la llamada que responde.
+2. Un mensaje que ocurre bajo una condición o en una repetición va **dentro** del operando de su fragmento, no antes ni después. Lo que sigue al fragmento va después del fragmento, en el mismo nivel.
+3. **No escribas `x`, `y`, `width` ni `height` en los fragmentos.** El marco se calcula para abarcar sus mensajes. Una `y` manual corre hacia abajo todo lo que sigue y deja huecos; un marco manual chico deja mensajes afuera.
+4. Usá `startParticipantId` / `endParticipantId` solo si el marco tiene que abarcar más participantes que los de sus mensajes.
+5. No inventes campos `y`, `order` ni `position` en los mensajes: se ignoran.
+6. Evitá mensajes que salten muchas columnas. Si un mensaje une participantes lejanos, revisá el orden de los participantes: probablemente uno de ellos va más cerca.
+7. Las notas van ancladas y sin coordenadas, como se indica en 5.4.
 8. Verificá la creación/destrucción, las respuestas, los límites de fragmentos y las barras de activación; `problems: []` en el JSON no silencia los problemas que detecta la aplicación.
 
 ### 5.6. Ejemplo completo e importable
 
-Incluye creación de Pedido, retornos explícitos, una alternativa con dos operandos y una nota. Los vínculos externos se configuran al reunir los ejemplos en un proyecto, como explica la sección 7.
+Incluye creación de Pedido, retornos explícitos, una alternativa con dos operandos y una nota anclada sin coordenadas (la aplicación la ubica junto a su mensaje). Los participantes están separados según 5.5. Los vínculos externos se configuran al reunir los ejemplos en un proyecto, como explica la sección 7.
 
 ```json
 {
@@ -925,8 +1152,6 @@ Incluye creación de Pedido, retornos explícitos, una alternativa con dos opera
       {
         "id": "nota-crear",
         "text": "La operación crearPedido devuelve el pedido creado.",
-        "x": 1250,
-        "y": 190,
         "width": 260,
         "height": 110,
         "anchorKind": "message",
@@ -961,6 +1186,14 @@ Para que una secuencia use este modelo, su `content.classDiagramArtifactId` debe
 Si generás clases a partir de secuencias, omití `sourceClassDiagramArtifactId`. Tomá los clasificadores y las operaciones que recibe cada participante; no deduzcas que todos los mensajes representan asociaciones persistentes, herencias o composiciones. Un actor externo no se convierte en una entidad del dominio solo por ser un participante.
 
 Usá los mismos criterios de espaciado, puertos y símbolos UML que en la sección 2. No uses `participants` o `items` aquí ni un supuesto tipo de nodo «clase de secuencia».
+
+#### Resumen de disposición (detalle en 2.2 y 2.3)
+
+- Tamaño de cada clase: ancho `max(220, 65 + 6 × caracteres de la línea más larga)`. Alto `56 + 21 × max(a, 1)` sin métodos y `71 + 21 × (max(a, 1) + m)` con métodos.
+- Grilla de columnas y filas, con pasillos de 160 a 180 entre columnas y de 110 a 140 entre filas. Cada clase va centrada en su columna (`x = cx − W/2`) y en su fila (`y = cy − H/2`).
+- La clase con más relaciones va en el centro. Sus cuatro vecinas directas (arriba, abajo, izquierda y derecha) se unen con relaciones rectas: lados fijos enfrentados, handles centrales y `lineStyle: "straight"`.
+- Las demás relaciones van a clases en diagonal, con lados `"automatic"`, sin handles y `lineStyle: "orthogonal"`. Las que siguen una cadena (una DTO que contiene otra) van al lado de la clase con la que se relacionan, no del centro.
+- Nunca dos relaciones en el mismo puerto de una clase. Nunca todas las relaciones a una misma clase por el mismo lado.
 
 ### 6.1. Ejemplo completo e importable
 
@@ -1130,17 +1363,17 @@ Los mensajes dentro de un fragmento tienen el mismo formato de referencias; reco
 
 1. El archivo pasa `JSON.parse`; su raíz es un artefacto con `type`, `name` y `content`, o un proyecto con `name` y `artifacts` completos. No es texto Markdown ni un arreglo de ejemplos sin envoltorio.
 2. Todos los IDs son válidos y únicos en sus dominios; no hay referencias a nombres, índices ni IDs inexistentes. Los datos de opciones usan exactamente los valores admitidos.
-3. En clases, los endpoints, multiplicidades, roles, triángulos y rombos expresan el modelo, y las clases/etiquetas/notas tienen espacio suficiente.
+3. En clases, los endpoints, multiplicidades, roles, triángulos y rombos expresan el modelo. Los rectángulos calculados con 2.3 no se tocan, las vecinas están centradas en su fila o columna con relaciones rectas, y ninguna clase recibe dos relaciones en el mismo puerto.
 4. En casos de uso, los actores quedan fuera del límite, los óvalos dentro, y include/extend/generalización apuntan al destino adecuado.
 5. En flujos, la numeración está en el texto, las alternativas se derivan desde un paso real y las referencias a caminos y pasos existen.
-6. En secuencias, los participantes no se superponen, los mensajes siguen el orden requerido, las respuestas se enlazan a llamadas previas y la creación/destrucción y los fragmentos son consistentes.
+6. En secuencias, los participantes siguen el orden de intervención sin superponerse, los mensajes están en `items` en el orden del escenario y dentro del operando correcto, los fragmentos no tienen geometría manual, las notas ancladas no tienen `x` / `y`, las respuestas se enlazan a llamadas previas y la creación/destrucción es consistente.
 7. En clases de secuencias, la estructura de clases es válida, las secuencias apuntan a ese artefacto con `content.classDiagramArtifactId` y `linkedSequenceDiagramIds` coincide con esos vínculos. No se requiere sincronización con el diagrama de clases común.
 8. Importá el resultado y verificá su presentación, nombres y referencias en el editor correspondiente. En editores que tienen **Revisar**, corregí los problemas reales detectados; la ausencia de avisos no demuestra que el negocio esté modelado correctamente.
 9. Exportá un artefacto o el proyecto como JSON para contrastar el formato real. No presentes como editable un campo que el normalizador elimina o recalcula.
 
 ## 9. Exportar, importar y mover
 
-**Opciones del artefacto → Exportar artefacto (JSON)** genera un archivo individual de cualquiera de los cinco tipos. **Opciones del proyecto → Exportar proyecto (JSON)** conserva el conjunto con sus vínculos.
+**Opciones del artefacto → Exportar artefacto (JSON)** genera un archivo individual de cualquiera de los cinco tipos. **Opciones del proyecto → Exportar proyecto (JSON)** conserva el conjunto con sus vínculos. Junto a cada uno, **Copiar … (JSON)** copia el mismo contenido al portapapeles, para pegarlo directamente en un chat con la IA.
 
 **Importar artefacto…** agrega una copia al proyecto elegido y abre esa copia. **Inicio → Importar…** agrega proyectos completos. No confundas los dos caminos al entregar varios diagramas vinculados.
 

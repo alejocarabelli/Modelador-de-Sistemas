@@ -920,7 +920,7 @@ static unsigned long long const kMaxProposalBytes = 8 * 1024 * 1024;
                                            contentWorld:WKContentWorld.pageWorld
                                                    name:@"modeladorWindows"];
     [contentController addUserScript:[[WKUserScript alloc]
-        initWithSource:@"window.__modeladorNativeWindows = true;"
+        initWithSource:@"window.__modeladorNativeWindows = true; window.__modeladorNativeClipboard = true;"
          injectionTime:WKUserScriptInjectionTimeAtDocumentStart
       forMainFrameOnly:YES]];
     self.filesBridge = [[FilesBridge alloc] init];
@@ -975,6 +975,14 @@ static unsigned long long const kMaxProposalBytes = 8 * 1024 * 1024;
 
 - (void)handleWindowMessage:(NSDictionary *)message {
     NSString *action = [message[@"action"] isKindOfClass:NSString.class] ? message[@"action"] : @"";
+    if ([action isEqualToString:@"copy-text"]) {
+        // El esquema propio de la app no cuenta como origen seguro para la API del portapapeles.
+        if ([message[@"text"] isKindOfClass:NSString.class]) {
+            [NSPasteboard.generalPasteboard clearContents];
+            [NSPasteboard.generalPasteboard setString:message[@"text"] forType:NSPasteboardTypeString];
+        }
+        return;
+    }
     NSString *projectId = [message[@"projectId"] isKindOfClass:NSString.class] ? message[@"projectId"] : @"";
     NSString *artifactId = [message[@"artifactId"] isKindOfClass:NSString.class] ? message[@"artifactId"] : @"";
     NSString *title = [message[@"title"] isKindOfClass:NSString.class] ? message[@"title"] : kAppName;
