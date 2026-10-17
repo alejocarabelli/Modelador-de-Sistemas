@@ -15,6 +15,7 @@ import { useLiveProjects } from '../hooks/useLiveProjects';
 import { readCanvasGridEnabled } from '../storage/uiPreferences';
 import { focusArtifactInMainWindow } from '../storage/nativeWindows';
 import { normalizeAssociationEdge } from '../utils/association';
+import { resolveRenderedAssociationHandles } from '../utils/associationRouting';
 import { normalizeDiagramContent, normalizeUseCaseModelContent } from '../utils/diagramNormalization';
 import { analyzeSequenceDiagramSemantics } from '../utils/sequenceDiagram';
 import { buildSequenceLayout } from '../utils/sequenceDiagramLayout';
@@ -76,8 +77,17 @@ function ClassModelViewer({ artifact }: { artifact: ClassModelArtifact }) {
 
   const edges = useMemo<Edge[]>(() => content.edges.map((rawEdge) => {
     const edge = normalizeAssociationEdge(rawEdge);
+    const geometry = (nodeId: string) => {
+      const node = content.nodes.find((candidate) => candidate.id === nodeId);
+      return node === undefined ? undefined : { position: node.position, ...nodeSizes[node.id] };
+    };
+    const sourceGeometry = geometry(edge.source);
+    const targetGeometry = geometry(edge.target);
     return {
       ...edge,
+      ...(sourceGeometry !== undefined && targetGeometry !== undefined
+        ? resolveRenderedAssociationHandles(edge, sourceGeometry, targetGeometry)
+        : {}),
       selectable: false,
       data: {
         ...edge.data,
