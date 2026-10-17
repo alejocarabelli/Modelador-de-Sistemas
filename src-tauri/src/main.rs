@@ -126,6 +126,60 @@ fn backup(window: WebviewWindow, action: String, payload: Option<String>) -> Res
 }
 
 // ---------------------------------------------------------------------------
+// Propuestas de Claude
+
+/// La extensión de Claude Desktop (claude-mcp/) deja propuestas de cambio en
+/// Documentos\Modelador de Sistemas\Claude\Propuestas. Igual que en el Mac,
+/// este comando solo las lista y borra la que el usuario aplicó o descartó.
+const MAX_PROPOSAL_BYTES: u64 = 8 * 1024 * 1024;
+
+fn proposals_directory(app: &AppHandle) -> Option<PathBuf> {
+    let documents = app.path().document_dir().ok()?;
+    Some(documents.join(APP_NAME).join("Claude").join("Propuestas"))
+}
+
+/// Solo un nombre de archivo suelto: nada de rutas que salgan de la carpeta.
+fn is_proposal_name(name: &str) -> bool {
+    !name.is_empty() && !name.starts_with('.') && name.ends_with(".json") && !name.contains(['/', '\\', ':'])
+}
+
+fn list_proposals(dir: &Path) -> Vec<serde_json::Value> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut proposals: Vec<(String, String)> = entries.flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_str()?.to_string();
+            let metadata = entry.metadata().ok()?;
+            if !is_proposal_name(&name) || !metadata.is_file() || metadata.len() > MAX_PROPOSAL_BYTES {
+                return None;
+            }
+            Some((name, std::fs::read_to_string(entry.path()).ok()?))
+        })
+        .collect();
+    // Los nombres empiezan con la fecha: así sale primero la más vieja.
+    proposals.sort_by(|a, b| a.0.cmp(&b.0));
+    proposals.into_iter().map(|(file, text)| serde_json::json!({ "file": file, "text": text })).collect()
+}
+
+#[tauri::command]
+fn claude_proposals(window: WebviewWindow, action: String, file: Option<String>) -> Result<serde_json::Value, String> {
+    if window.label() != MAIN_LABEL {
+        return Err("Solo la ventana principal recibe propuestas.".into());
+    }
+    let dir = proposals_directory(window.app_handle());
+    match action.as_str() {
+        "list" => Ok(serde_json::json!({ "proposals": dir.map(|dir| list_proposals(&dir)).unwrap_or_default() })),
+        "resolve" => {
+            let (Some(dir), Some(file)) = (dir, file.filter(|name| is_proposal_name(name))) else {
+                return Err("Propuesta inválida.".into());
+            };
+            let _ = std::fs::remove_file(dir.join(file));
+            Ok(serde_json::json!({ "ok": true }))
+        }
+        _ => Err("Acción desconocida.".into()),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Guardar archivos (exportaciones)
 
 /// Muestra el diálogo de Guardar y escribe los bytes. Devuelve la ruta, o nada
@@ -392,7 +446,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![backup, save_file, windows_message, main_ready_to_close])
+        .invoke_handler(tauri::generate_handler![backup, save_file, windows_message, main_ready_to_close, claude_proposals])
         .setup(|app| {
             create_main_window(app.handle())?;
             Ok(())
@@ -431,6 +485,16 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proposal_names_stay_inside_the_folder() {
+        assert!(is_proposal_name("2026-10-12T10-00-00-abc.json"));
+        assert!(!is_proposal_name("../respaldo.json"));
+        assert!(!is_proposal_name("..\\x.json"));
+        assert!(!is_proposal_name("C:x.json"));
+        assert!(!is_proposal_name(".oculta.json"));
+        assert!(!is_proposal_name("propuesta.txt"));
+    }
 
     #[test]
     fn file_names_are_valid_on_windows() {

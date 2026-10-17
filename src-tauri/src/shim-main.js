@@ -28,6 +28,15 @@
     },
   };
 
+  // Propuestas de Claude: listar las pendientes y borrar la que se resolvió.
+  window.__modeladorClaudeProposals = true;
+  handlers.claude = {
+    postMessage: (message) => invoke('claude_proposals', {
+      action: String(message?.action ?? ''),
+      file: message?.file == null ? null : String(message.file),
+    }),
+  };
+
   const settle = () => Promise.allSettled([...pending]);
 
   // Rust llama a esto al pedir cerrar la principal: se guarda lo pendiente
