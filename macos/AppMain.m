@@ -430,6 +430,100 @@ static NSUInteger const kBackupsToKeep = 10;
 
 @end
 
+#pragma mark - Propuestas de Claude
+
+/**
+ * La extensión de Claude Desktop (claude-mcp/) deja propuestas de cambio en
+ * ~/Documents/Modelador de Sistemas/Claude/Propuestas, un JSON por propuesta.
+ * Este puente solo las lista y, cuando el usuario aplica o descarta una, la
+ * borra. Nunca aplica nada: eso lo decide el usuario en la app.
+ */
+static unsigned long long const kMaxProposalBytes = 8 * 1024 * 1024;
+
+@interface ClaudeBridge : NSObject <WKScriptMessageHandlerWithReply>
+@end
+
+@implementation ClaudeBridge
+
++ (NSURL *)proposalsDirectory {
+    NSURL *documents = [[NSFileManager defaultManager] URLForDirectory:NSDocumentDirectory
+                                                              inDomain:NSUserDomainMask
+                                                     appropriateForURL:nil
+                                                                create:NO
+                                                                 error:nil];
+    if (!documents) {
+        return nil;
+    }
+    return [[[documents URLByAppendingPathComponent:kAppName isDirectory:YES]
+        URLByAppendingPathComponent:@"Claude" isDirectory:YES]
+        URLByAppendingPathComponent:@"Propuestas" isDirectory:YES];
+}
+
+/** Solo un nombre de archivo suelto: nada de rutas que salgan de la carpeta. */
++ (BOOL)isProposalName:(NSString *)name {
+    return [name isKindOfClass:NSString.class] && name.length > 0 && ![name hasPrefix:@"."]
+        && [name.pathExtension isEqualToString:@"json"]
+        && [name rangeOfString:@"/"].location == NSNotFound
+        && [name rangeOfString:@"\\"].location == NSNotFound;
+}
+
++ (NSArray<NSDictionary *> *)proposalsIn:(NSURL *)directory {
+    NSArray<NSURL *> *entries = [[NSFileManager defaultManager]
+        contentsOfDirectoryAtURL:directory
+      includingPropertiesForKeys:@[NSURLIsRegularFileKey, NSURLFileSizeKey]
+                         options:NSDirectoryEnumerationSkipsHiddenFiles
+                           error:nil];
+    NSMutableArray<NSDictionary *> *proposals = [NSMutableArray array];
+    for (NSURL *entry in entries) {
+        NSString *name = entry.lastPathComponent;
+        if (![self isProposalName:name]) continue;
+        NSNumber *regular = nil, *size = nil;
+        [entry getResourceValue:&regular forKey:NSURLIsRegularFileKey error:nil];
+        [entry getResourceValue:&size forKey:NSURLFileSizeKey error:nil];
+        if (!regular.boolValue || size.unsignedLongLongValue > kMaxProposalBytes) continue;
+        NSString *text = [NSString stringWithContentsOfURL:entry encoding:NSUTF8StringEncoding error:nil];
+        if (text) [proposals addObject:@{@"file": name, @"text": text}];
+    }
+    // Los nombres empiezan con la fecha: así sale primero la más vieja.
+    [proposals sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        return [left[@"file"] compare:right[@"file"]];
+    }];
+    return proposals;
+}
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message
+                 replyHandler:(void (^)(id reply, NSString *errorMessage))replyHandler {
+    NSDictionary *body = [message.body isKindOfClass:NSDictionary.class] ? message.body : nil;
+    NSString *action = body[@"action"];
+    NSString *file = body[@"file"];
+    NSURL *directory = [self.class proposalsDirectory];
+
+    // Leer y borrar archivos fuera del hilo principal; la respuesta vuelve en él.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        id reply = nil;
+        NSString *errorMessage = nil;
+        if ([action isEqualToString:@"list"]) {
+            reply = @{@"proposals": directory ? [self.class proposalsIn:directory] : @[]};
+        } else if ([action isEqualToString:@"resolve"]) {
+            if (!directory || ![self.class isProposalName:file]) {
+                errorMessage = @"Propuesta inválida.";
+            } else {
+                NSURL *target = [directory URLByAppendingPathComponent:file isDirectory:NO];
+                [[NSFileManager defaultManager] removeItemAtURL:target error:nil];
+                reply = @{@"ok": @YES};
+            }
+        } else {
+            errorMessage = @"Acción desconocida.";
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            replyHandler(reply, errorMessage);
+        });
+    });
+}
+
+@end
+
 /*
  * Puente de los PDF de los proyectos (ver «Archivos» más arriba). La lectura no pasa por acá: el
  * AppSchemeHandler los sirve en modeladorv2://app/__archivos/<fileId>.pdf. Las ventanas secundarias
@@ -741,6 +835,7 @@ static NSUInteger const kBackupsToKeep = 10;
 @property(nonatomic, strong) WebCoordinator *coordinator;
 @property(nonatomic, strong) AppSchemeHandler *schemeHandler;
 @property(nonatomic, strong) BackupBridge *backupBridge;
+@property(nonatomic, strong) ClaudeBridge *claudeBridge;
 @property(nonatomic, strong) WindowBridge *windowBridge;
 @property(nonatomic, strong) FilesBridge *filesBridge;
 @property(nonatomic, strong) FilesBridge *viewerFilesBridge;
@@ -839,6 +934,20 @@ static NSUInteger const kBackupsToKeep = 10;
       forMainFrameOnly:YES]];
     self.viewerFilesBridge = [[FilesBridge alloc] init];
     self.viewerFilesBridge.readOnly = YES;
+    // Solo la ventana principal ve las propuestas de Claude: es la única que guarda.
+    self.claudeBridge = [[ClaudeBridge alloc] init];
+    [contentController addScriptMessageHandlerWithReply:self.claudeBridge
+                                           contentWorld:WKContentWorld.pageWorld
+                                                   name:@"modeladorClaude"];
+    [contentController addUserScript:[[WKUserScript alloc]
+        initWithSource:
+            @"window.__modeladorClaudeProposals = true;"
+             "window.__modeladorBridges = window.__modeladorBridges || {};"
+             "window.__modeladorBridges.claude = { postMessage(message) {"
+             "return window.webkit.messageHandlers.modeladorClaude.postMessage(message);"
+             "} };"
+         injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+      forMainFrameOnly:YES]];
     configuration.userContentController = contentController;
     self.viewerWindows = [NSMutableDictionary dictionary];
     self.viewerCoordinators = [NSMutableDictionary dictionary];

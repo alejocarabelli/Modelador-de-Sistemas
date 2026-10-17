@@ -1,0 +1,11 @@
+{
+  "name": "modelador-de-sistemas-mcp",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor MCP para que Claude Desktop vea el trabajo en el Modelador de Sistemas y proponga cambios.",
+  "scripts": {
+    "test": "node --test",
+    "pack": "cp ../docs/artifact-json-guide.md guia-de-artefactos.md && npx --yes @anthropic-ai/mcpb@2.1.2 pack . modelador-de-sistemas.mcpb"
+  }
+}
