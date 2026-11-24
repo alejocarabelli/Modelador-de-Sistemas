@@ -2544,3 +2544,11 @@
   min-height: 0;
   height: 100% !important;
 }
+
+.ucf-completion-hint {
+  padding: 4px 8px 2px;
+  border-top: 1px solid var(--panel-border);
+  color: var(--panel-muted-text, var(--panel-text));
+  opacity: 0.7;
+  font-size: 11px;
+}

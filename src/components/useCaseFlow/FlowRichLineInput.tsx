@@ -74,6 +74,7 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
   const localRef = useRef<HTMLTextAreaElement | null>(null);
   const [suggestions, setSuggestions] = useState<CompletionSuggestion[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [picked, setPicked] = useState(false);
 
   const mirror = useMemo(
     () => renderTokens(tokenizeFlowInline(value, vocabulary, detectKeyword)),
@@ -88,6 +89,7 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
     const next = getSuggestions(nextValue, caret);
     setSuggestions(next);
     setActiveIndex(0);
+    setPicked(false);
   };
 
   const applySuggestion = (index: number): boolean => {
@@ -132,11 +134,13 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
       if (event.key === 'ArrowDown') {
         event.preventDefault();
         setActiveIndex((current) => (current + 1) % suggestions.length);
+        setPicked(true);
         return;
       }
       if (event.key === 'ArrowUp') {
         event.preventDefault();
         setActiveIndex((current) => (current - 1 + suggestions.length) % suggestions.length);
+        setPicked(true);
         return;
       }
       if (event.key === 'Escape') {
@@ -147,10 +151,15 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
       if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
         const suggestion = suggestions[activeIndex];
         const el = event.currentTarget;
+        const isCommand = suggestion?.id.startsWith('slash') ?? false;
         const isBlockCommand = suggestion?.id.startsWith('slash-sys:loop') || suggestion?.id === 'slash-sys:conditional';
+        // Typing comes first: Enter breaks the line unless the person opened
+        // the «/» menu or chose an option with the arrows. Tab completes.
+        const accepts = event.key === 'Tab' || isCommand || picked;
         // A suggestion that would leave the text as it is (the word is already
-        // typed in full) must not swallow Enter: the line has to break.
-        if (suggestion && !isBlockCommand && suggestion.apply(el.value, el.selectionStart ?? el.value.length).value === el.value) {
+        // typed in full) must not swallow the key either.
+        const unchanged = suggestion && !isBlockCommand && suggestion.apply(el.value, el.selectionStart ?? el.value.length).value === el.value;
+        if (!suggestion || !accepts || unchanged) {
           setSuggestions([]);
         } else {
           event.preventDefault();
@@ -215,6 +224,7 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
               {suggestion.badge ? <span className="ucf-completion-badge">{suggestion.badge}</span> : null}
             </button>
           ))}
+          {suggestions[0]?.id.startsWith('slash') ? null : <div className="ucf-completion-hint">⇥ completar · ↵ nueva línea</div>}
         </div>
       ) : null}
     </div>
