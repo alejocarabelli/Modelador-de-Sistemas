@@ -1,0 +1,826 @@
+{
+ "id": "demo-tramites",
+ "name": "Gestión de trámites",
+ "createdAt": "2026-09-20T12:00:00.000Z",
+ "updatedAt": "2026-09-20T12:00:00.000Z",
+ "activeArtifactId": "cd",
+ "artifacts": [
+  {
+   "id": "cd",
+   "type": "class-diagram",
+   "name": "Modelo de dominio",
+   "createdAt": "2026-09-20T12:00:00.000Z",
+   "updatedAt": "2026-09-20T12:00:00.000Z",
+   "content": {
+    "nodes": [
+     {
+      "id": "c-tramite",
+      "type": "classNode",
+      "position": {
+       "x": 80,
+       "y": 80
+      },
+      "data": {
+       "name": "Tramite",
+       "attributes": [
+        {
+         "id": "a1",
+         "name": "nroTramite",
+         "type": "int"
+        },
+        {
+         "id": "a2",
+         "name": "fechaRecepcion",
+         "type": "Date"
+        },
+        {
+         "id": "a3",
+         "name": "observacion",
+         "type": "String"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m1",
+         "visibility": "+",
+         "name": "getNroTramite",
+         "parameters": "",
+         "returnType": "int"
+        },
+        {
+         "id": "m2",
+         "visibility": "+",
+         "name": "getEstadoActual",
+         "parameters": "",
+         "returnType": "EstadoTramite"
+        },
+        {
+         "id": "m3",
+         "visibility": "+",
+         "name": "cambiarEstado",
+         "parameters": "nuevo: Estado",
+         "returnType": ""
+        }
+       ],
+       "groupColor": "blue"
+      }
+     },
+     {
+      "id": "c-estadotramite",
+      "type": "classNode",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "data": {
+       "name": "EstadoTramite",
+       "attributes": [
+        {
+         "id": "a4",
+         "name": "fechaHoraDesde",
+         "type": "DateTime"
+        },
+        {
+         "id": "a5",
+         "name": "fechaHoraHasta",
+         "type": "DateTime"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m4",
+         "visibility": "+",
+         "name": "esActual",
+         "parameters": "",
+         "returnType": "boolean"
+        },
+        {
+         "id": "m5",
+         "visibility": "+",
+         "name": "setFechaHoraHasta",
+         "parameters": "fecha: DateTime",
+         "returnType": ""
+        }
+       ]
+      }
+     },
+     {
+      "id": "c-estado",
+      "type": "classNode",
+      "position": {
+       "x": 980,
+       "y": 80
+      },
+      "data": {
+       "name": "Estado",
+       "attributes": [
+        {
+         "id": "a6",
+         "name": "nombre",
+         "type": "String"
+        },
+        {
+         "id": "a7",
+         "name": "descripcion",
+         "type": "String"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m6",
+         "visibility": "+",
+         "name": "getNombre",
+         "parameters": "",
+         "returnType": "String"
+        }
+       ]
+      }
+     },
+     {
+      "id": "c-consultor",
+      "type": "classNode",
+      "position": {
+       "x": 80,
+       "y": 460
+      },
+      "data": {
+       "name": "Consultor",
+       "attributes": [
+        {
+         "id": "a8",
+         "name": "legajo",
+         "type": "int"
+        },
+        {
+         "id": "a9",
+         "name": "nombre",
+         "type": "String"
+        },
+        {
+         "id": "a10",
+         "name": "fechaHoraBaja",
+         "type": "DateTime"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m7",
+         "visibility": "+",
+         "name": "estaActivo",
+         "parameters": "",
+         "returnType": "boolean"
+        }
+       ],
+       "groupColor": "teal"
+      }
+     },
+     {
+      "id": "c-tipo",
+      "type": "classNode",
+      "position": {
+       "x": 560,
+       "y": 460
+      },
+      "data": {
+       "name": "TipoTramite",
+       "attributes": [
+        {
+         "id": "a11",
+         "name": "codigo",
+         "type": "String"
+        },
+        {
+         "id": "a12",
+         "name": "nombre",
+         "type": "String"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m8",
+         "visibility": "+",
+         "name": "getNombre",
+         "parameters": "",
+         "returnType": "String"
+        }
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "type": "association",
+      "source": "c-tramite",
+      "target": "c-estadotramite",
+      "data": {
+       "name": "historial",
+       "sourceMultiplicity": "1",
+       "targetMultiplicity": "1..*",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     },
+     {
+      "id": "e2",
+      "type": "association",
+      "source": "c-estadotramite",
+      "target": "c-estado",
+      "data": {
+       "name": "",
+       "sourceMultiplicity": "*",
+       "targetMultiplicity": "1",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     },
+     {
+      "id": "e3",
+      "type": "association",
+      "source": "c-tramite",
+      "target": "c-consultor",
+      "data": {
+       "name": "",
+       "sourceMultiplicity": "*",
+       "targetMultiplicity": "1",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     },
+     {
+      "id": "e4",
+      "type": "association",
+      "source": "c-tramite",
+      "target": "c-tipo",
+      "data": {
+       "name": "",
+       "sourceMultiplicity": "*",
+       "targetMultiplicity": "1",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "ucm",
+   "type": "use-case-model",
+   "name": "Casos de uso",
+   "createdAt": "2026-09-20T12:00:00.000Z",
+   "updatedAt": "2026-09-20T12:00:00.000Z",
+   "content": {
+    "nodes": [
+     {
+      "id": "u-limite",
+      "type": "systemBoundary",
+      "position": {
+       "x": 260,
+       "y": 40
+      },
+      "data": {
+       "kind": "system-boundary",
+       "name": "Sistema de gestión de trámites"
+      },
+      "style": {
+       "width": 560,
+       "height": 420
+      },
+      "width": 560,
+      "height": 420
+     },
+     {
+      "id": "u-consultor",
+      "type": "useCaseActor",
+      "position": {
+       "x": 60,
+       "y": 180
+      },
+      "data": {
+       "kind": "actor",
+       "name": "Consultor"
+      }
+     },
+     {
+      "id": "u-cu1",
+      "type": "useCaseOval",
+      "position": {
+       "x": 400,
+       "y": 110
+      },
+      "data": {
+       "kind": "use-case",
+       "name": "Registrar cambio de estado"
+      }
+     },
+     {
+      "id": "u-cu2",
+      "type": "useCaseOval",
+      "position": {
+       "x": 400,
+       "y": 300
+      },
+      "data": {
+       "kind": "use-case",
+       "name": "Consultar trámites"
+      }
+     }
+    ],
+    "edges": [
+     {
+      "id": "ue1",
+      "source": "u-consultor",
+      "target": "u-cu1",
+      "type": "useCaseRelation",
+      "data": {
+       "relationType": "association"
+      },
+      "sourceHandle": "right",
+      "targetHandle": "left"
+     },
+     {
+      "id": "ue2",
+      "source": "u-consultor",
+      "target": "u-cu2",
+      "type": "useCaseRelation",
+      "data": {
+       "relationType": "association"
+      },
+      "sourceHandle": "right",
+      "targetHandle": "left"
+     }
+    ]
+   }
+  },
+  {
+   "id": "flow",
+   "type": "use-case-flow",
+   "name": "CU 3 · Cambio de estado",
+   "createdAt": "2026-09-20T12:00:00.000Z",
+   "updatedAt": "2026-09-20T12:00:00.000Z",
+   "content": {
+    "classDiagramArtifactId": "cd",
+    "description": {
+     "useCaseNumber": "3",
+     "useCaseName": "Registrar cambio de estado de trámite",
+     "actor": "Consultor",
+     "description": "El consultor actualiza el estado de los trámites que tiene asignados.",
+     "priority": "A",
+     "inputParameters": "VcodConsultor, VnroTramite, acción (Confirmar-Rechazar)",
+     "precondition": "El consultor inició sesión en el sistema.",
+     "postcondition": "El trámite queda en el nuevo estado.",
+     "initialState": "Instancia de Consultor con:\n• fechaHoraBaja igual a vacío",
+     "finalState": "Si confirma...\nInstancia de EstadoTramite creada con:\n• fechaHoraDesde igual a fecha actual"
+    },
+    "basicFlow": [
+     {
+      "id": "b1",
+      "actor": "1. El consultor selecciona la opción Cambiar estado de trámite.",
+      "system": "2. El sistema busca los trámites asignados al consultor con estado actual vigente y los muestra. [CA 1]",
+      "ref": ""
+     },
+     {
+      "id": "b2",
+      "actor": "3. El consultor selecciona un trámite y el nuevo estado.",
+      "system": "4. El sistema registra el cambio de estado y cierra el estado anterior.",
+      "ref": ""
+     }
+    ],
+    "alternativeFlows": [
+     {
+      "id": "alt1",
+      "code": "CA 1",
+      "name": "No hay trámites para el consultor",
+      "steps": [
+       {
+        "id": "x1",
+        "actor": "",
+        "system": "3. El sistema informa que no hay trámites para el consultor.\n4. Fin CU.",
+        "ref": ""
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "sd",
+   "type": "sequence-diagram",
+   "name": "Secuencia CU 3",
+   "createdAt": "2026-09-20T12:00:00.000Z",
+   "updatedAt": "2026-09-20T12:00:00.000Z",
+   "content": {
+    "version": 1,
+    "numbering": "sequential",
+    "showActivations": true,
+    "canvas": {
+     "width": 1400,
+     "height": 900
+    },
+    "classDiagramArtifactId": "cd",
+    "flowArtifactId": "flow",
+    "participants": [
+     {
+      "id": "p-actor",
+      "kind": "actor",
+      "name": "Consultor",
+      "classifierName": "",
+      "x": 120
+     },
+     {
+      "id": "p-pantalla",
+      "kind": "boundary",
+      "name": "",
+      "classifierName": "PantallaCambioEstado",
+      "x": 330
+     },
+     {
+      "id": "p-gestor",
+      "kind": "control",
+      "name": "",
+      "classifierName": "GestorCambioEstado",
+      "x": 560
+     },
+     {
+      "id": "p-tramite",
+      "kind": "entity",
+      "name": "actual",
+      "classifierName": "Tramite",
+      "classifierNodeId": "c-tramite",
+      "x": 790
+     },
+     {
+      "id": "p-estado",
+      "kind": "entity",
+      "name": "",
+      "classifierName": "EstadoTramite",
+      "classifierNodeId": "c-estadotramite",
+      "x": 1010
+     }
+    ],
+    "items": [
+     {
+      "id": "s1",
+      "kind": "message",
+      "type": "synchronous",
+      "sourceId": "p-actor",
+      "targetId": "p-pantalla",
+      "name": "opcionCambiarEstado",
+      "arguments": "",
+      "parameterValues": "",
+      "returnType": "",
+      "flowReference": "1"
+     },
+     {
+      "id": "s2",
+      "kind": "message",
+      "type": "synchronous",
+      "sourceId": "p-pantalla",
+      "targetId": "p-gestor",
+      "name": "nuevoCambioEstado",
+      "arguments": "",
+      "parameterValues": "",
+      "returnType": "",
+      "flowReference": "1"
+     },
+     {
+      "id": "f1",
+      "kind": "fragment",
+      "operator": "loop",
+      "name": "",
+      "operands": [
+       {
+        "id": "o1",
+        "guard": "por cada trámite",
+        "items": [
+         {
+          "id": "s3",
+          "kind": "message",
+          "type": "synchronous",
+          "sourceId": "p-gestor",
+          "targetId": "p-tramite",
+          "name": "getNroTramite",
+          "arguments": "",
+          "parameterValues": "",
+          "returnType": "int",
+          "operationMethodId": "m1",
+          "flowReference": "2"
+         },
+         {
+          "id": "s4",
+          "kind": "message",
+          "type": "synchronous",
+          "sourceId": "p-tramite",
+          "targetId": "p-estado",
+          "name": "esActual",
+          "arguments": "",
+          "parameterValues": "",
+          "returnType": "boolean",
+          "operationMethodId": "m4",
+          "flowReference": "2"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "id": "s5",
+      "kind": "message",
+      "type": "synchronous",
+      "sourceId": "p-gestor",
+      "targetId": "p-pantalla",
+      "name": "mostrarTramites",
+      "arguments": "tramites",
+      "parameterValues": "",
+      "returnType": "",
+      "flowReference": "3"
+     }
+    ],
+    "activations": [],
+    "notes": [
+     {
+      "id": "n1",
+      "text": "Solo se listan los trámites con estado actual vigente.",
+      "x": 1120,
+      "y": 300,
+      "width": 200,
+      "height": 80,
+      "anchorKind": "free",
+      "color": "yellow"
+     }
+    ]
+   }
+  },
+  {
+   "id": "csd",
+   "type": "class-sequence-diagram",
+   "name": "Clases de secuencias CU 3",
+   "createdAt": "2026-09-20T12:00:00.000Z",
+   "updatedAt": "2026-09-20T12:00:00.000Z",
+   "content": {
+    "version": 1,
+    "nodes": [
+     {
+      "id": "c-tramite",
+      "type": "classNode",
+      "position": {
+       "x": 80,
+       "y": 80
+      },
+      "data": {
+       "name": "Tramite",
+       "attributes": [
+        {
+         "id": "a1",
+         "name": "nroTramite",
+         "type": "int"
+        },
+        {
+         "id": "a2",
+         "name": "fechaRecepcion",
+         "type": "Date"
+        },
+        {
+         "id": "a3",
+         "name": "observacion",
+         "type": "String"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m1",
+         "visibility": "+",
+         "name": "getNroTramite",
+         "parameters": "",
+         "returnType": "int"
+        },
+        {
+         "id": "m2",
+         "visibility": "+",
+         "name": "getEstadoActual",
+         "parameters": "",
+         "returnType": "EstadoTramite"
+        },
+        {
+         "id": "m3",
+         "visibility": "+",
+         "name": "cambiarEstado",
+         "parameters": "nuevo: Estado",
+         "returnType": ""
+        }
+       ],
+       "groupColor": "blue"
+      }
+     },
+     {
+      "id": "c-estadotramite",
+      "type": "classNode",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "data": {
+       "name": "EstadoTramite",
+       "attributes": [
+        {
+         "id": "a4",
+         "name": "fechaHoraDesde",
+         "type": "DateTime"
+        },
+        {
+         "id": "a5",
+         "name": "fechaHoraHasta",
+         "type": "DateTime"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m4",
+         "visibility": "+",
+         "name": "esActual",
+         "parameters": "",
+         "returnType": "boolean"
+        },
+        {
+         "id": "m5",
+         "visibility": "+",
+         "name": "setFechaHoraHasta",
+         "parameters": "fecha: DateTime",
+         "returnType": ""
+        }
+       ]
+      }
+     },
+     {
+      "id": "c-estado",
+      "type": "classNode",
+      "position": {
+       "x": 980,
+       "y": 80
+      },
+      "data": {
+       "name": "Estado",
+       "attributes": [
+        {
+         "id": "a6",
+         "name": "nombre",
+         "type": "String"
+        },
+        {
+         "id": "a7",
+         "name": "descripcion",
+         "type": "String"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m6",
+         "visibility": "+",
+         "name": "getNombre",
+         "parameters": "",
+         "returnType": "String"
+        }
+       ]
+      }
+     },
+     {
+      "id": "c-consultor",
+      "type": "classNode",
+      "position": {
+       "x": 80,
+       "y": 460
+      },
+      "data": {
+       "name": "Consultor",
+       "attributes": [
+        {
+         "id": "a8",
+         "name": "legajo",
+         "type": "int"
+        },
+        {
+         "id": "a9",
+         "name": "nombre",
+         "type": "String"
+        },
+        {
+         "id": "a10",
+         "name": "fechaHoraBaja",
+         "type": "DateTime"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m7",
+         "visibility": "+",
+         "name": "estaActivo",
+         "parameters": "",
+         "returnType": "boolean"
+        }
+       ],
+       "groupColor": "teal"
+      }
+     },
+     {
+      "id": "c-tipo",
+      "type": "classNode",
+      "position": {
+       "x": 560,
+       "y": 460
+      },
+      "data": {
+       "name": "TipoTramite",
+       "attributes": [
+        {
+         "id": "a11",
+         "name": "codigo",
+         "type": "String"
+        },
+        {
+         "id": "a12",
+         "name": "nombre",
+         "type": "String"
+        }
+       ],
+       "methods": [
+        {
+         "id": "m8",
+         "visibility": "+",
+         "name": "getNombre",
+         "parameters": "",
+         "returnType": "String"
+        }
+       ]
+      }
+     }
+    ],
+    "edges": [
+     {
+      "id": "e1",
+      "type": "association",
+      "source": "c-tramite",
+      "target": "c-estadotramite",
+      "data": {
+       "name": "historial",
+       "sourceMultiplicity": "1",
+       "targetMultiplicity": "1..*",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     },
+     {
+      "id": "e2",
+      "type": "association",
+      "source": "c-estadotramite",
+      "target": "c-estado",
+      "data": {
+       "name": "",
+       "sourceMultiplicity": "*",
+       "targetMultiplicity": "1",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     },
+     {
+      "id": "e3",
+      "type": "association",
+      "source": "c-tramite",
+      "target": "c-consultor",
+      "data": {
+       "name": "",
+       "sourceMultiplicity": "*",
+       "targetMultiplicity": "1",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     },
+     {
+      "id": "e4",
+      "type": "association",
+      "source": "c-tramite",
+      "target": "c-tipo",
+      "data": {
+       "name": "",
+       "sourceMultiplicity": "*",
+       "targetMultiplicity": "1",
+       "sourceRole": "",
+       "targetRole": "",
+       "navigability": "source-to-target"
+      }
+     }
+    ],
+    "linkedSequenceDiagramIds": [
+     "sd"
+    ],
+    "sourceClassDiagramArtifactId": "cd"
+   }
+  }
+ ]
+}

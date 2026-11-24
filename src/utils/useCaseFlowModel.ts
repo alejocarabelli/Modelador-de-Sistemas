@@ -468,7 +468,15 @@ export const parseStateTextToBlocks = (raw: string, mode: 'initial' | 'final'): 
   };
 
   for (const rawLine of lines) {
-    if (!rawLine.trim()) continue;
+    if (!rawLine.trim()) {
+      // A blank line ends a «Si …:» block: what follows holds in every case.
+      if (activeCondition) {
+        activeCondition = null;
+        activeInstance = null;
+        bulletStack.length = 0;
+      }
+      continue;
+    }
     const bulletMatch = STATE_BULLET_RE.exec(rawLine);
 
     if (bulletMatch && activeInstance) {
@@ -488,6 +496,16 @@ export const parseStateTextToBlocks = (raw: string, mode: 'initial' | 'final'): 
     }
 
     const trimmed = rawLine.trim();
+
+    // «Instancias principales» would otherwise read as instances of a class «principales».
+    if (/^(instancias\s+(?:principales|secundarias)|primer(?:a)?\s+instancia|instancias\s+\w+\s+siguientes)/i.test(trimmed) && !bulletMatch) {
+      activeCondition = null;
+      activeInstance = null;
+      bulletStack.length = 0;
+      blocks.push({ id: createId(), kind: 'section', title: trimmed.replace(/:\s*$/, '') });
+      continue;
+    }
+
     const headerMatch = STATE_INSTANCE_HEADER_RE.exec(trimmed);
     if (headerMatch) {
       const multiplicity = parseMultiplicity(headerMatch[1]);
@@ -515,14 +533,6 @@ export const parseStateTextToBlocks = (raw: string, mode: 'initial' | 'final'): 
       };
       blocks.push(condBlock);
       activeCondition = condBlock;
-      continue;
-    }
-
-    if (/^(instancias\s+(?:principales|secundarias)|primer(?:a)?\s+instancia|instancias\s+\w+\s+siguientes)/i.test(trimmed) && !bulletMatch) {
-      activeCondition = null;
-      activeInstance = null;
-      bulletStack.length = 0;
-      blocks.push({ id: createId(), kind: 'section', title: trimmed.replace(/:\s*$/, '') });
       continue;
     }
 

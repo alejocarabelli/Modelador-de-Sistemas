@@ -9,8 +9,6 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
   ClipboardCopy,
   Download,
   Eye,
@@ -76,8 +74,8 @@ import { ToolbarHistory } from './ToolbarHistory';
 import { DiagramReviewPanel } from './DiagramReviewPanel';
 import { AutoGrowTextarea } from './AutoGrowTextarea';
 import { InputParametersEditor } from './useCaseFlow/InputParametersEditor';
-import { StateTreeEditor } from './useCaseFlow/StateTreeEditor';
-import { FlowStepsTable } from './useCaseFlow/FlowStepsTable';
+import { StateTextEditor } from './useCaseFlow/StateTextEditor';
+import { FlowLinesEditor } from './useCaseFlow/FlowLinesEditor';
 import { ClassDiagramSidePanel } from './useCaseFlow/ClassDiagramSidePanel';
 import { FlowDocumentPreview } from './useCaseFlow/FlowDocumentPreview';
 import { FlowExportDialog } from './useCaseFlow/FlowExportDialog';
@@ -131,7 +129,6 @@ export function UseCaseFlowEditor({
   const [previewMode, setPreviewMode] = useState(false);
 
   const [collapsedAltIds, setCollapsedAltIds] = useState<Set<string>>(() => new Set());
-  const [collapsedStepIds, setCollapsedStepIds] = useState<Set<string>>(() => new Set());
 
   // Right side panel: only one open at a time ('none' | 'review' | 'class-diagram')
   const [sidePanel, setSidePanel] = useState<'none' | 'review' | 'class-diagram'>('none');
@@ -251,6 +248,11 @@ export function UseCaseFlowEditor({
     if (el === null) fieldRefs.current.delete(key);
     else fieldRefs.current.set(key, el);
   }, []);
+
+  const registerLine = useCallback((stepId: string, el: HTMLTextAreaElement | null): void => {
+    registerFieldRef(`main:${stepId}`, el);
+    registerFieldRef(`sub:${stepId}`, el);
+  }, [registerFieldRef]);
 
   const handleFocusEditable = useCallback((_el: HTMLTextAreaElement, applyInsert: (token: string) => void): void => {
     activeInsertRef.current = applyInsert;
@@ -394,11 +396,6 @@ export function UseCaseFlowEditor({
     }
     const entry = numbering.entries.find((e) => e.stepId === anchor.stepId);
     if (entry) {
-      setCollapsedStepIds((current) => {
-        const next = new Set(current);
-        next.delete(entry.mainStepId);
-        return next;
-      });
       setPendingFocusKey(entry.isMain ? `main:${entry.stepId}` : `sub:${entry.stepId}`);
       flashHighlight(entry.stepId);
     }
@@ -422,21 +419,6 @@ export function UseCaseFlowEditor({
     }
   };
 
-  const toggleCollapseStep = useCallback((stepId: string): void => {
-    setCollapsedStepIds((current) => {
-      const next = new Set(current);
-      if (next.has(stepId)) next.delete(stepId);
-      else next.add(stepId);
-      return next;
-    });
-  }, []);
-
-  const foldLongSteps = (): void => {
-    const allMain = [...content.basicFlow, ...content.alternativeFlows.flatMap((a) => a.steps)];
-    const longIds = allMain.filter((s) => s.children.length >= 4).map((s) => s.id);
-    setCollapsedStepIds(new Set(longIds));
-    showFeedback(longIds.length === 0 ? 'No hay pasos largos para plegar' : `${longIds.length} pasos plegados`);
-  };
 
   // -------------------------------------------------------------------------
   // Export & clipboard
@@ -530,11 +512,6 @@ export function UseCaseFlowEditor({
     setPendingAltFocusId(null);
   }, [content, pendingAltFocusId]);
 
-  const inputParamNames = useMemo(
-    () => content.description.inputParameters.map((p) => p.name.trim()).filter(Boolean),
-    [content.description.inputParameters],
-  );
-
   return (
     <main className="editor-shell ucf-editor-shell">
       <EditorToolbar
@@ -589,17 +566,6 @@ export function UseCaseFlowEditor({
               </MenuItem>
               <MenuItem checked={showAlternatives} onSelect={() => setShowAlternatives((v) => !v)}>
                 Caminos Alternativos
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem icon={ChevronsDownUp} onSelect={foldLongSteps}>
-                Plegar pasos largos
-              </MenuItem>
-              <MenuItem
-                disabled={collapsedStepIds.size === 0}
-                icon={ChevronsUpDown}
-                onSelect={() => setCollapsedStepIds(new Set())}
-              >
-                Desplegar todos los pasos
               </MenuItem>
             </ToolMenu>
             <ToolMenu icon={Download} label="Exportar">
@@ -831,11 +797,12 @@ export function UseCaseFlowEditor({
                         <small>Instancias persistidas controladas al inicio</small>
                       </span>
                       <div className="ucf-desc-value">
-                        <StateTreeEditor
+                        <StateTextEditor
+                          ariaLabel="Estado Inicial"
                           blocks={content.description.initialState}
-                          highlightedId={highlightedId}
-                          inputParamNames={inputParamNames}
+                          content={content}
                           mode="initial"
+                          placeholder={'Instancia de Clase existente:\n    • Con atributo igual a valor'}
                           symbolIndex={symbolIndex}
                           vocabulary={vocabulary}
                           onChange={(initialState) => updateDescription({ initialState })}
@@ -849,11 +816,12 @@ export function UseCaseFlowEditor({
                         <small>Instancias creadas o modificadas</small>
                       </span>
                       <div className="ucf-desc-value">
-                        <StateTreeEditor
+                        <StateTextEditor
+                          ariaLabel="Estado Final"
                           blocks={content.description.finalState}
-                          highlightedId={highlightedId}
-                          inputParamNames={inputParamNames}
+                          content={content}
                           mode="final"
+                          placeholder={'Instancia de Clase creada:\n    • Con atributo igual a valor'}
                           symbolIndex={symbolIndex}
                           vocabulary={vocabulary}
                           onChange={(finalState) => updateDescription({ finalState })}
@@ -933,24 +901,21 @@ export function UseCaseFlowEditor({
                 </header>
 
                 {showBasicFlow ? (
-                  <FlowStepsTable
-                    collapsedStepIds={collapsedStepIds}
+                  <FlowLinesEditor
                     content={content}
+                    firstSide="actor"
                     flowId="basic"
                     highlightedStepId={highlightedId}
                     numbering={numbering}
-                    registerFieldRef={registerFieldRef}
+                    registerLine={registerLine}
                     steps={content.basicFlow}
                     symbolIndex={symbolIndex}
                     useCaseNames={useCaseNames}
                     vocabulary={vocabulary}
                     onChangeSteps={(basicFlow) => commitContent({ ...content, basicFlow })}
-                    onCreateAlternativeFromStep={createAlternativeFromStep}
+                    onCreateAlternative={createAlternativeFromStep}
                     onFocusEditable={handleFocusEditable}
                     onJumpToAlternative={jumpToAlternative}
-                    onJumpToStep={jumpToStep}
-                    onRequestFocusKey={setPendingFocusKey}
-                    onToggleCollapseStep={toggleCollapseStep}
                   />
                 ) : null}
               </section>
@@ -1131,25 +1096,22 @@ export function UseCaseFlowEditor({
                                 {effectiveStart}. {alt.steps[0]?.title.trim() || 'Sin pasos'} ({alt.steps.length} {alt.steps.length === 1 ? 'paso' : 'pasos'})
                               </p>
                             ) : (
-                              <FlowStepsTable
-                                collapsedStepIds={collapsedStepIds}
-                                content={content}
-                                flowId={alt.id}
-                                highlightedStepId={highlightedId}
-                                numbering={numbering}
-                                registerFieldRef={registerFieldRef}
-                                steps={alt.steps}
-                                symbolIndex={symbolIndex}
-                                useCaseNames={useCaseNames}
-                                vocabulary={vocabulary}
-                                onChangeSteps={(steps) => updateAlternativeFlow(alt.id, { steps })}
-                                onCreateAlternativeFromStep={createAlternativeFromStep}
-                                onFocusEditable={handleFocusEditable}
-                                onJumpToAlternative={jumpToAlternative}
-                                onJumpToStep={jumpToStep}
-                                onRequestFocusKey={setPendingFocusKey}
-                                onToggleCollapseStep={toggleCollapseStep}
-                              />
+                              <FlowLinesEditor
+                    content={content}
+                    firstSide="system"
+                    flowId={alt.id}
+                    highlightedStepId={highlightedId}
+                    numbering={numbering}
+                    registerLine={registerLine}
+                    steps={alt.steps}
+                    symbolIndex={symbolIndex}
+                    useCaseNames={useCaseNames}
+                    vocabulary={vocabulary}
+                    onChangeSteps={(steps) => updateAlternativeFlow(alt.id, { steps })}
+                    onCreateAlternative={createAlternativeFromStep}
+                    onFocusEditable={handleFocusEditable}
+                    onJumpToAlternative={jumpToAlternative}
+                  />
                             )}
                           </article>
                         );

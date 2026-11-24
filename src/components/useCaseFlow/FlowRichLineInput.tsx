@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
@@ -46,6 +47,7 @@ export type FlowRichLineInputProps = {
   onChange: (value: string) => void;
   onFocusField?: (el: HTMLTextAreaElement) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onSlashBlockCommand?: (commandId: 'loop-por-cada' | 'loop-mientras' | 'conditional') => void;
 };
 
@@ -66,6 +68,7 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
   onChange,
   onFocusField,
   onKeyDown,
+  onPaste,
   onSlashBlockCommand,
 }: FlowRichLineInputProps) {
   const localRef = useRef<HTMLTextAreaElement | null>(null);
@@ -142,9 +145,18 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
         return;
       }
       if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
-        event.preventDefault();
-        applySuggestion(activeIndex);
-        return;
+        const suggestion = suggestions[activeIndex];
+        const el = event.currentTarget;
+        const isBlockCommand = suggestion?.id.startsWith('slash-sys:loop') || suggestion?.id === 'slash-sys:conditional';
+        // A suggestion that would leave the text as it is (the word is already
+        // typed in full) must not swallow Enter: the line has to break.
+        if (suggestion && !isBlockCommand && suggestion.apply(el.value, el.selectionStart ?? el.value.length).value === el.value) {
+          setSuggestions([]);
+        } else {
+          event.preventDefault();
+          applySuggestion(activeIndex);
+          return;
+        }
       }
     }
     onKeyDown?.(event);
@@ -182,6 +194,7 @@ export const FlowRichLineInput = memo(function FlowRichLineInput({
           }
         }}
         onKeyDown={handleKeyDown}
+        onPaste={onPaste}
       />
       {suggestions.length > 0 ? (
         <div className="ucf-completion-menu" role="listbox">
