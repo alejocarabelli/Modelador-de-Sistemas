@@ -137,7 +137,11 @@ const subNodeLines = (nodes: FlowSubNode[], depth: number, ctx: FlowLineContext)
     if (node.kind === 'action') {
       const side = node.speaker ?? 'system';
       const text = node.primitive === 'ir-a-paso' ? jumpText(node.text, node.jumpTarget, ctx) : withAnchor(node.text, node.stepRef, ctx);
-      return [{ id: node.id, kind: 'step', side, depth, text, refs: node.refs }, ...detailLines(node.details, side, depth + 1, ctx)];
+      return [
+        { id: node.id, kind: 'step', side, depth, text, refs: node.refs },
+        ...detailLines(node.details, side, depth + 1, ctx),
+        ...subNodeLines(node.children ?? [], depth + 1, ctx),
+      ];
     }
     if (node.kind === 'loop') {
       return [
@@ -179,6 +183,7 @@ export const treeToLines = (steps: FlowMainStep[], ctx: FlowLineContext): FlowEd
 type Container =
   | { depth: number; kind: 'main'; node: FlowMainStep }
   | { depth: number; kind: 'loop'; node: FlowLoopNode }
+  | { depth: number; kind: 'action'; node: FlowActionNode }
   | { depth: number; kind: 'conditional'; node: FlowConditionalNode; inElse: boolean };
 
 type DetailOwner = { depth: number; details: FlowDetailItem[] };
@@ -186,6 +191,10 @@ type DetailOwner = { depth: number; details: FlowDetailItem[] };
 const childList = (container: Container): FlowSubNode[] => {
   if (container.kind === 'main') return container.node.children;
   if (container.kind === 'loop') return container.node.children;
+  if (container.kind === 'action') {
+    container.node.children ??= [];
+    return container.node.children;
+  }
   if (container.inElse) {
     container.node.elseChildren ??= [];
     return container.node.elseChildren;
@@ -308,6 +317,8 @@ export const linesToTree = (lines: FlowEditLine[], ctx: FlowLineContext): FlowMa
 
     const node = buildAction(line, ctx);
     siblings.push(node);
+    // Any sub-step can hold its own sub-steps: 4.1 → 4.1.1 → 4.1.1.1.
+    stack.push({ depth: childDepth, kind: 'action', node });
     owners = [{ depth: childDepth, details: node.details }];
   }
 
@@ -322,7 +333,12 @@ const pruneDetails = (details: FlowDetailItem[]): FlowDetailItem[] =>
   });
 
 const pruneNode = (node: FlowSubNode): FlowSubNode => {
-  if (node.kind === 'action') return { ...node, details: pruneDetails(node.details) };
+  if (node.kind === 'action') {
+    const children = (node.children ?? []).map(pruneNode);
+    const rest: FlowActionNode = { ...node, details: pruneDetails(node.details) };
+    delete rest.children;
+    return children.length > 0 ? { ...rest, children } : rest;
+  }
   if (node.kind === 'loop') return { ...node, details: pruneDetails(node.details), children: node.children.map(pruneNode) };
   return {
     ...node,
@@ -362,15 +378,13 @@ export const blockEnd = (lines: FlowEditLine[], index: number): number => {
   return end;
 };
 
-/** Whether a step line may sit one level deeper: only inside POR CADA, MIENTRAS or SI. */
+/** Whether a step line may sit one level deeper: under the step line just above it at that level. */
 export const canNestStep = (lines: FlowEditLine[], index: number, depth: number): boolean => {
   if (depth <= 1) return depth === 1 && index > 0;
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
     const candidate = lines[cursor];
     if (candidate.kind !== 'step') continue;
-    if (candidate.depth === depth - 1) {
-      return loopPattern.test(candidate.text) || conditionalPattern.test(candidate.text) || elsePattern.test(candidate.text.trim());
-    }
+    if (candidate.depth === depth - 1) return true;
     if (candidate.depth < depth - 1) return false;
   }
   return false;

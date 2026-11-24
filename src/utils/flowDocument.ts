@@ -375,6 +375,7 @@ const buildMainStepRow = (
         } else {
           subRows.push({ actor: [], system: [line, ...detailLines], ref: refText });
         }
+        if (node.children) emitSubNodes(node.children, depth + 1, loopDepth);
       } else if (node.kind === 'loop') {
         const nextLoopDepth = loopDepth + 1;
         const suffix = formatStepAnchorSuffix(node.stepRef, content, numbering, flowId);

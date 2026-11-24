@@ -96,6 +96,40 @@ describe('flow lines', () => {
     expect(linesToTree(lines, ctx)[0].jumpTarget).toEqual({ flowId: 'basic', stepId: 'm2' });
   });
 
+  it('nests sub-steps under any sub-step, as deep as needed', () => {
+    const content = normalizeUseCaseFlowContent({});
+    const ctx = contextFor(content, 'basic');
+    const lines: FlowEditLine[] = [
+      newLine({ side: 'actor', depth: 0, text: 'Iniciar CU' }),
+      newLine({ side: 'system', depth: 0, text: 'Verificar' }),
+      newLine({ side: 'system', depth: 1, text: 'Controlar datos' }),
+      newLine({ side: 'system', depth: 2, text: 'Controlar formato' }),
+      newLine({ side: 'system', depth: 3, text: 'Controlar longitud' }),
+      newLine({ side: 'system', depth: 2, text: 'Controlar rango' }),
+      newLine({ side: 'system', depth: 1, text: 'Buscar socio' }),
+    ];
+    const tree = linesToTree(lines, ctx);
+    const next = normalizeUseCaseFlowContent({ ...content, basicFlow: tree });
+    const numbering = computeFlowNumbering(next);
+    expect(lines.slice(1).map((line) => numbering.stepNumberById.get(line.id))).toEqual(['2', '2.1', '2.1.1', '2.1.1.1', '2.1.2', '2.2']);
+    expect(treeToLines(next.basicFlow, contextFor(next, 'basic'))).toEqual(lines);
+  });
+
+  it('numbers eleven sub-steps deep inside a chain like 1.2.1.2.11', () => {
+    const content = normalizeUseCaseFlowContent({});
+    const ctx = contextFor(content, 'basic');
+    const lines: FlowEditLine[] = [
+      newLine({ side: 'system', depth: 0, text: 'Paso' }),
+      newLine({ side: 'system', depth: 1, text: 'a' }),
+      newLine({ side: 'system', depth: 1, text: 'b' }),
+      newLine({ side: 'system', depth: 2, text: 'c' }),
+      newLine({ side: 'system', depth: 2, text: 'd' }),
+      ...Array.from({ length: 11 }, (_, index) => newLine({ side: 'system', depth: 3, text: `e${index + 1}` })),
+    ];
+    const next = normalizeUseCaseFlowContent({ ...content, basicFlow: linesToTree(lines, ctx) });
+    expect(computeFlowNumbering(next).stepNumberById.get(lines.at(-1)!.id)).toBe('1.2.2.11');
+  });
+
   it('turns (paso N) into a link that follows renumbering', () => {
     const content = normalizeUseCaseFlowContent({});
     const lines: FlowEditLine[] = [

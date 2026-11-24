@@ -685,6 +685,7 @@ export const extractPseudoEntities = (content: UseCaseFlowContent): DeclaredPseu
           });
         }
         scanText(node.text, flowId, node.id);
+        if (node.children) scanSubNodes(node.children, flowId);
       } else if (node.kind === 'loop') {
         scanSubNodes(node.children, flowId);
       } else {
@@ -757,8 +758,8 @@ const collectCaReferencesInSubNodes = (
         out.push({ targetFlowId: ref.flowId, flowId, stepId: node.id, mainStepId });
       }
     }
-    if (node.kind === 'loop') {
-      collectCaReferencesInSubNodes(node.children, flowId, mainStepId, out);
+    if (node.kind === 'loop' || (node.kind === 'action' && node.children)) {
+      collectCaReferencesInSubNodes(node.children ?? [], flowId, mainStepId, out);
     } else if (node.kind === 'conditional') {
       collectCaReferencesInSubNodes(node.thenChildren, flowId, mainStepId, out);
       if (node.elseChildren) collectCaReferencesInSubNodes(node.elseChildren, flowId, mainStepId, out);
@@ -827,8 +828,8 @@ export const computeFlowNumbering = (content: UseCaseFlowContent): FlowNumbering
       flowEntries.push(entry);
       entries.push(entry);
 
-      if (node.kind === 'loop') {
-        numberSubNodes(node.children, number, mainNumber, depth + 1, flowId, mainStepId, flowEntries, 1);
+      if (node.kind === 'loop' || (node.kind === 'action' && node.children)) {
+        numberSubNodes(node.children ?? [], number, mainNumber, depth + 1, flowId, mainStepId, flowEntries, 1);
       } else if (node.kind === 'conditional') {
         // SINO and FINSI stay unnumbered; elseChildren continue the unique sub-numbering under SI.
         const nextCounter = numberSubNodes(node.thenChildren, number, mainNumber, depth + 1, flowId, mainStepId, flowEntries, 1);
@@ -989,6 +990,9 @@ export const mapSubNodes = (
     if (mapped.kind === 'loop') {
       return { ...mapped, children: mapSubNodes(mapped.children, updater) };
     }
+    if (mapped.kind === 'action' && mapped.children) {
+      return { ...mapped, children: mapSubNodes(mapped.children, updater) };
+    }
     if (mapped.kind === 'conditional') {
       return {
         ...mapped,
@@ -1004,6 +1008,9 @@ export const removeSubNodeById = (nodes: FlowSubNode[], targetId: string): FlowS
     .filter((node) => node.id !== targetId)
     .map((node) => {
       if (node.kind === 'loop') {
+        return { ...node, children: removeSubNodeById(node.children, targetId) };
+      }
+      if (node.kind === 'action' && node.children) {
         return { ...node, children: removeSubNodeById(node.children, targetId) };
       }
       if (node.kind === 'conditional') {
@@ -1029,6 +1036,9 @@ export const insertSubNodeAfterId = (
   }
   return nodes.map((node) => {
     if (node.kind === 'loop') {
+      return { ...node, children: insertSubNodeAfterId(node.children, afterId, newNode) };
+    }
+    if (node.kind === 'action' && node.children) {
       return { ...node, children: insertSubNodeAfterId(node.children, afterId, newNode) };
     }
     if (node.kind === 'conditional') {
@@ -1062,6 +1072,9 @@ export const moveSubNodeById = (
     if (node.kind === 'loop') {
       return { ...node, children: moveSubNodeById(node.children, targetId, direction) };
     }
+    if (node.kind === 'action' && node.children) {
+      return { ...node, children: moveSubNodeById(node.children, targetId, direction) };
+    }
     if (node.kind === 'conditional') {
       return {
         ...node,
@@ -1078,8 +1091,8 @@ export const moveSubNodeById = (
 export const findSubNodeById = (nodes: FlowSubNode[], targetId: string): FlowSubNode | undefined => {
   for (const node of nodes) {
     if (node.id === targetId) return node;
-    if (node.kind === 'loop') {
-      const found = findSubNodeById(node.children, targetId);
+    if (node.kind === 'loop' || (node.kind === 'action' && node.children)) {
+      const found = findSubNodeById(node.children ?? [], targetId);
       if (found) return found;
     } else if (node.kind === 'conditional') {
       const found = findSubNodeById(node.thenChildren, targetId)
@@ -1707,6 +1720,9 @@ const normalizeFlowSubNode = (raw: unknown, allocId: (v: unknown) => string): Fl
   const stepRef = normalizeStepAnchor(raw.stepRef);
   const jumpTarget = normalizeStepAnchor(raw.jumpTarget);
   const semantic = isRecord(raw.semantic) ? raw.semantic as FlowActionSemantic : undefined;
+  const children = Array.isArray(raw.children)
+    ? raw.children.map((c) => normalizeFlowSubNode(c, allocId)).filter((c): c is FlowSubNode => c !== null)
+    : [];
 
   return {
     id,
@@ -1721,6 +1737,7 @@ const normalizeFlowSubNode = (raw: unknown, allocId: (v: unknown) => string): Fl
     ...(stepRef ? { stepRef } : {}),
     ...(jumpTarget ? { jumpTarget } : {}),
     refs,
+    ...(children.length > 0 ? { children } : {}),
   };
 };
 

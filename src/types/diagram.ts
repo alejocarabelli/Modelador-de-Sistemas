@@ -333,6 +333,8 @@ export type FlowActionNode = {
   stepRef?: StepAnchorRef;
   jumpTarget?: StepAnchorRef;
   refs: FlowRef[];
+  /** Sub-steps written under this one (4.1 → 4.1.1, 4.1.2). Absent when there are none. */
+  children?: FlowSubNode[];
 };
 
 export type FlowLoopNode = {

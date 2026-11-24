@@ -292,7 +292,11 @@ export const FlowLinesEditor = memo(function FlowLinesEditor({
       return;
     }
 
-    if (isBlockHeader(trimmed) && !/^SINO$/i.test(trimmed)) {
+    const hasSubSteps = lines
+      .slice(index + 1, blockEnd(lines, index))
+      .some((candidate) => candidate.kind === 'step' && candidate.depth === line.depth + 1);
+    // A block header, or a step that already has sub-steps: the new line is its first sub-step.
+    if ((isBlockHeader(trimmed) || (hasSubSteps && line.depth > 0)) && !/^SINO$/i.test(trimmed)) {
       const firstInside = lines.slice(index + 1, blockEnd(lines, index)).findIndex((candidate) => candidate.kind === 'step');
       const position = firstInside === -1 ? index + 1 : index + 1 + firstInside;
       insertAt(position, newLine({ side: 'system', depth: line.depth + 1, text: after }), base);
