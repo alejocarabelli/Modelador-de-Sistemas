@@ -168,7 +168,8 @@ export type UseCaseModelContent = {
 
 export type UseCaseFlowPriority = 'A' | 'B' | 'C';
 
-export type UseCaseFlowDescription = {
+/** Legacy v1 flow structures, retained for automatic migration on import/load. */
+export type LegacyUseCaseFlowDescription = {
   useCaseNumber: string;
   useCaseName: string;
   actor: string;
@@ -181,27 +182,212 @@ export type UseCaseFlowDescription = {
   finalState: string;
 };
 
-export type UseCaseFlowStep = {
+export type LegacyUseCaseFlowStep = {
   id: string;
   actor: string;
   system: string;
   ref: string;
 };
 
-export type AlternativeUseCaseFlow = {
+export type LegacyAlternativeUseCaseFlow = {
   id: string;
   code: string;
   name: string;
-  /** First step number; when absent it follows the step that references the path. */
   firstStepNumber?: number;
-  steps: UseCaseFlowStep[];
+  steps: LegacyUseCaseFlowStep[];
+};
+
+export type LegacyUseCaseFlowContent = {
+  classDiagramArtifactId?: string | null;
+  description: LegacyUseCaseFlowDescription;
+  basicFlow: LegacyUseCaseFlowStep[];
+  alternativeFlows: LegacyAlternativeUseCaseFlow[];
+};
+
+export type FlowInputParameter = {
+  id: string;
+  name: string;
+  options?: string[];
+  optional?: boolean;
+};
+
+export type StateInstanceMultiplicity = 'single' | 'multiple' | 'one-or-more';
+export type StateInstanceQualifier = 'existente' | 'creada' | 'modificada' | 'custom';
+
+export type StateDetailItem =
+  | {
+      id: string;
+      kind: 'attribute';
+      attribute: string;
+      comparator: string;
+      value: string;
+    }
+  | {
+      id: string;
+      kind: 'relation';
+      multiplicity: StateInstanceMultiplicity;
+      className: string;
+      relationNote?: string;
+      children: StateDetailItem[];
+    }
+  | {
+      id: string;
+      kind: 'expression';
+      text: string;
+    };
+
+export type StateInstanceBlock = {
+  id: string;
+  kind: 'instance';
+  multiplicity: StateInstanceMultiplicity;
+  className: string;
+  qualifier: StateInstanceQualifier;
+  customQualifier?: string;
+  details: StateDetailItem[];
+};
+
+export type StateBlock =
+  | { id: string; kind: 'section'; title: string }
+  | { id: string; kind: 'condition'; condition: string; blocks: StateInstanceBlock[] }
+  | StateInstanceBlock
+  | { id: string; kind: 'free-text'; text: string };
+
+export type UseCaseFlowDescription = {
+  useCaseNumber: string;
+  useCaseName: string;
+  actor: string;
+  description: string;
+  priority: UseCaseFlowPriority;
+  inputParameters: FlowInputParameter[];
+  precondition: string;
+  initialState: StateBlock[];
+  finalState: StateBlock[];
+  /** Preserved only when migrating a v1 artifact that had non-empty postcondition text. */
+  legacyPostcondition?: string;
+};
+
+export type FlowRef =
+  | { id: string; kind: 'ca'; flowId: string }
+  | { id: string; kind: 'ca-missing'; code: string }
+  | { id: string; kind: 'gui'; label: string }
+  | { id: string; kind: 'custom'; label: string };
+
+export type StepAnchorRef = {
+  flowId: 'basic' | string;
+  stepId: string;
+};
+
+export type ActorPrimitive =
+  | 'iniciar-cu'
+  | 'ingresar'
+  | 'seleccionar'
+  | 'confirmar'
+  | 'elegir'
+  | 'custom';
+
+export type SystemPrimitive =
+  | 'buscar'
+  | 'leer'
+  | 'seleccionar'
+  | 'mostrar-mensaje'
+  | 'crear'
+  | 'modificar'
+  | 'comprobar'
+  | 'controlar-consistencia'
+  | 'ordenar'
+  | 'variable'
+  | 'invocar-servicio'
+  | 'definir-pseudoentidad'
+  | 'guardar-cambios'
+  | 'ir-a-paso'
+  | 'ir-a-cu'
+  | 'fin-cu'
+  | 'custom';
+
+export type FlowActionSemantic = {
+  sourceClass?: string;
+  targetClass?: string;
+  attribute?: string;
+  pseudoEntity?: { name: string; fields: string[] };
+  serviceName?: string;
+  externalSystem?: string;
+  targetUseCase?: string;
+};
+
+export type FlowDetailItem = {
+  id: string;
+  text: string;
+  stepRef?: StepAnchorRef;
+  children?: FlowDetailItem[];
+};
+
+export type FlowActionNode = {
+  id: string;
+  kind: 'action';
+  /** Defaults to 'system'. Allows Actor responses inside loops/conditionals (e.g. 7.4.2.2). */
+  speaker?: 'actor' | 'system';
+  primitive: SystemPrimitive | ActorPrimitive;
+  text: string;
+  semantic?: FlowActionSemantic;
+  details: FlowDetailItem[];
+  stepRef?: StepAnchorRef;
+  jumpTarget?: StepAnchorRef;
+  refs: FlowRef[];
+};
+
+export type FlowLoopNode = {
+  id: string;
+  kind: 'loop';
+  loopKind: 'por-cada' | 'mientras';
+  header: string;
+  targetClass?: string;
+  stepRef?: StepAnchorRef;
+  details: FlowDetailItem[];
+  children: FlowSubNode[];
+  refs: FlowRef[];
+};
+
+export type FlowConditionalNode = {
+  id: string;
+  kind: 'conditional';
+  condition: string;
+  thenChildren: FlowSubNode[];
+  elseChildren?: FlowSubNode[];
+  refs: FlowRef[];
+};
+
+export type FlowSubNode = FlowActionNode | FlowLoopNode | FlowConditionalNode;
+
+export type FlowMainStep = {
+  id: string;
+  speaker: 'actor' | 'system';
+  primitive?: ActorPrimitive | SystemPrimitive;
+  title: string;
+  semantic?: FlowActionSemantic;
+  details?: FlowDetailItem[];
+  jumpTarget?: StepAnchorRef;
+  stepRef?: StepAnchorRef;
+  refs: FlowRef[];
+  children: FlowSubNode[];
+};
+
+export type AlternativeUseCaseFlow = {
+  id: string;
+  number: number;
+  title: string;
+  /** Optional manual override; when absent it follows the referencing step's main number + 1. */
+  firstStepNumberOverride?: number;
+  steps: FlowMainStep[];
 };
 
 export type UseCaseFlowContent = {
+  version: 2;
   /** null: "Sin referencia" chosen explicitly. Absent: never chosen, so the project's only class diagram is used. */
   classDiagramArtifactId?: string | null;
+  /** Optional starting number for basicFlow (defaults to 1). */
+  basicFlowFirstStepNumber?: number;
   description: UseCaseFlowDescription;
-  basicFlow: UseCaseFlowStep[];
+  basicFlow: FlowMainStep[];
   alternativeFlows: AlternativeUseCaseFlow[];
 };
 

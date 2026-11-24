@@ -1,8 +1,4 @@
-import type { UseCaseFlowStep } from './diagram';
-
-export type StepField = keyof Omit<UseCaseFlowStep, 'id'>;
-
-export type FlowTextField = Extract<StepField, 'actor' | 'system'>;
+export type FlowTextField = 'actor' | 'system';
 
 export type TextInsertion = {
   caretPosition: number;
@@ -13,13 +9,23 @@ export type CompletionSuggestion = {
   detail?: string;
   id: string;
   label: string;
-  /** Multi-line snippets renumber the cell once inserted. */
-  normalizeNumbering?: boolean;
+  badge?: string;
   apply: (value: string, position: number) => TextInsertion;
 };
 
-export type FlowUsageIndex = {
-  classes: string[];
-  refs: string[];
-  variables: string[];
+export type FlowExportOptions = {
+  includeDescription: boolean;
+  descriptionMode: 'full' | 'brief-and-initial';
+  includeBasicFlow: boolean;
+  includeAlternatives: boolean;
+  selectedAlternativeIds?: string[];
+  orientation: 'portrait' | 'landscape';
+};
+
+export const DEFAULT_FLOW_EXPORT_OPTIONS: FlowExportOptions = {
+  includeDescription: true,
+  descriptionMode: 'full',
+  includeBasicFlow: true,
+  includeAlternatives: true,
+  orientation: 'portrait',
 };

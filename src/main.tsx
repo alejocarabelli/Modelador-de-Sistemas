@@ -17,6 +17,7 @@ import './refined.css';
 import './design/system.css';
 import './design/shell.css';
 import './design/editors.css';
+import './design/useCaseFlow.css';
 import './design/viewer.css';
 import './design/notebook.css';
 

@@ -99,6 +99,20 @@ test('el resumen de cada diagrama de ejemplo ocupa bastante menos que su JSON', 
   }
 });
 
+test('el resumen de un flujo v2 muestra lista descriptiva, bucles, Ref. alineado, numeración de CAs e IDs', () => {
+  const flujo = demo.artifacts.find((a) => a.type === 'use-case-flow');
+  const texto = resumirArtefacto(flujo, demo, { ids: true });
+  assert.match(texto, /Diagrama de clases vinculado: Modelo de dominio/);
+  assert.match(texto, /Precondición: Consultor instanciado/);
+  assert.match(texto, /### Estado Inicial/);
+  assert.match(texto, /Instancia de Tramite existente:/);
+  assert.match(texto, /\[BUCLE Por cada\] 2\.2\. Por cada instancia de Tramite/);
+  assert.match(texto, /\[Ref\.: CA N°1\]/);
+  assert.match(texto, /## Camino alternativo N°1: No existen trámites asignados al consultor \(desde paso 2\.1, empieza en 3\)/);
+  assert.match(texto, /Ir a paso 2 de camino principal/);
+  assert.match(texto, /‹b2-1›/);
+});
+
 test('elige el respaldo más nuevo y el artefacto abierto del último proyecto', async () => {
   const carpeta = await mkdtemp(join(tmpdir(), 'respaldos-'));
   const viejo = { ...demo, id: 'viejo', name: 'Viejo', updatedAt: '2020-01-01T00:00:00.000Z' };

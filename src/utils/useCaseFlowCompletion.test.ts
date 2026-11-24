@@ -1,51 +1,112 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectSymbolIndex } from './projectSymbolIndex';
-import { buildFlowSuggestions } from './useCaseFlowCompletion';
+import { buildFlowLineSuggestions } from './useCaseFlowCompletion';
+import { createEmptyUseCaseFlowContent, createFlowMainStep, parseInputParametersText } from './useCaseFlowModel';
 
 const symbols: ProjectSymbolIndex = {
-  classes: [{
-    name: 'Pedido',
-    attributes: [{ name: 'estado', type: 'string' }],
-    methods: [],
-    parametricValues: ['Pendiente', 'Entregado'],
-    relatedClasses: [],
-  }],
+  classes: [
+    {
+      name: 'Pedido',
+      attributes: [{ name: 'estado', type: 'String' }],
+      methods: [],
+      parametricValues: ['Pendiente', 'Entregado'],
+      relatedClasses: ['LineaPedido'],
+      relations: [
+        {
+          edgeId: 'e1',
+          targetClass: 'LineaPedido',
+          relationType: 'composition',
+          navigable: true,
+          isReverseOnly: false,
+          isUnspecifiedNavigability: false,
+          targetMultiplicity: '1..*',
+          targetRole: '',
+          relationName: '',
+        },
+      ],
+    },
+    {
+      name: 'LineaPedido',
+      attributes: [{ name: 'cantidad', type: 'int' }],
+      methods: [],
+      parametricValues: [],
+      relatedClasses: ['Pedido'],
+      relations: [
+        {
+          edgeId: 'e1',
+          targetClass: 'Pedido',
+          relationType: 'composition',
+          navigable: false,
+          isReverseOnly: true,
+          isUnspecifiedNavigability: false,
+          targetMultiplicity: '1',
+          targetRole: '',
+          relationName: '',
+        },
+      ],
+    },
+  ],
 };
-const usage = { classes: [], refs: [], variables: [] };
 
-describe('flow completion', () => {
-  it('completes an actor action at the caret without replacing the suffix', () => {
-    const value = '1. Sele producto';
-    const position = '1. Sele'.length;
-    const suggestions = buildFlowSuggestions('actor', value, position, symbols, usage);
-    expect(suggestions.map(suggestion => suggestion.label)).toEqual(['Seleccionar']);
-    expect(suggestions[0].apply(value, position)).toEqual({
-      value: '1. Seleccionar  producto', caretPosition: '1. Seleccionar '.length,
+const baseContent = {
+  ...createEmptyUseCaseFlowContent(),
+  description: {
+    ...createEmptyUseCaseFlowContent().description,
+    inputParameters: parseInputParametersText('pNumeroPedido, respuesta (Sí - No)'),
+  },
+  basicFlow: [createFlowMainStep('actor', 'Iniciar CU', { id: 's1', primitive: 'iniciar-cu' })],
+};
+
+describe('flow v2 line completion', () => {
+  it('opens slash command menu with official System primitives', () => {
+    const suggestions = buildFlowLineSuggestions('system', '/por', 4, {
+      content: baseContent,
+      flowId: 'basic',
+      symbolIndex: symbols,
     });
+    expect(suggestions.map((s) => s.id)).toContain('slash-sys:loop-por-cada');
   });
 
-  it('inserts the selected class with a condition line and positions the caret there', () => {
-    const value = '2. Buscar instancia Pe';
-    const suggestions = buildFlowSuggestions('system', value, value.length, symbols, usage);
-    expect(suggestions.map(suggestion => suggestion.label)).toEqual(['Pedido']);
-    const expected = '2. Buscar instancia Pedido con:\n    - ';
-    expect(suggestions[0].apply(value, value.length)).toEqual({
-      value: expected, caretPosition: expected.length,
+  it('completes Actor primitives and input parameters inside parentheses', () => {
+    const actorSugs = buildFlowLineSuggestions('actor', 'Sele', 4, {
+      content: baseContent,
+      flowId: 'basic',
+      symbolIndex: symbols,
     });
+    expect(actorSugs.map((s) => s.label)).toEqual(['Seleccionar']);
+
+    const paramSugs = buildFlowLineSuggestions('actor', 'Ingresar número (pNum', 21, {
+      content: baseContent,
+      flowId: 'basic',
+      symbolIndex: symbols,
+    });
+    expect(paramSugs[0]?.label).toBe('pNumeroPedido');
   });
 
-  it('suggests values from the class searched on the previous line', () => {
-    const value = '2. Buscar instancia Pedido con:\n    - estado = "Pe';
-    const suggestions = buildFlowSuggestions('system', value, value.length, symbols, usage);
-    expect(suggestions.map(suggestion => suggestion.label)).toEqual(['"Pendiente"']);
-    const expected = '2. Buscar instancia Pedido con:\n    - estado = "Pendiente"';
-    expect(suggestions[0].apply(value, value.length)).toEqual({
-      value: expected, caretPosition: expected.length,
+  it('suggests DC classes after Buscar and parametric values after igual a', () => {
+    const clsSugs = buildFlowLineSuggestions('system', 'Buscar instancia de Pe', 22, {
+      content: baseContent,
+      flowId: 'basic',
+      symbolIndex: symbols,
     });
+    expect(clsSugs[0]?.label).toBe('Pedido');
+
+    const valSugs = buildFlowLineSuggestions('system', 'Con estado igual a Pe', 21, {
+      content: baseContent,
+      flowId: 'basic',
+      symbolIndex: symbols,
+      ownerClassName: 'Pedido',
+    });
+    expect(valSugs[0]?.label).toBe("'Pendiente'");
   });
 
-  it('does not invent classes when the linked diagram is empty', () => {
-    const value = '2. Buscar instancia Pe';
-    expect(buildFlowSuggestions('system', value, value.length, { classes: [] }, usage)).toEqual([]);
+  it('prioritizes navigable source classes in Leer', () => {
+    const leerSugs = buildFlowLineSuggestions('system', 'Leer instancia de LineaPedido relacionada a ', 44, {
+      content: baseContent,
+      flowId: 'basic',
+      symbolIndex: symbols,
+    });
+    expect(leerSugs[0]?.label).toBe('Pedido');
+    expect(leerSugs[0]?.badge).toBe('✓ Leer');
   });
 });

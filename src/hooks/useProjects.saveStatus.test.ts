@@ -40,7 +40,7 @@ describe('indicador de guardado', () => {
     for (let edit = 0; edit < 10; edit += 1) {
       const hook = renderHook();
       const project = hook.activeProject!;
-      const content = project.artifacts[0].content as { description: Record<string, string> };
+      const content = project.artifacts[0].content as unknown as { description: Record<string, unknown> };
       hook.updateProjectArtifactContent(project.id, project.artifacts[0].id, {
         ...content,
         description: { ...content.description, useCaseName: `Caso ${edit}` },

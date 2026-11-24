@@ -1,391 +1,88 @@
-import type { AlternativeUseCaseFlow, UseCaseFlowContent, UseCaseFlowStep } from '../types/diagram';
-import type { FlowTextField } from '../types/useCaseFlowEditor';
+import type {
+  FlowDetailItem,
+  FlowMainStep,
+  FlowSubNode,
+  StateBlock,
+  StateDetailItem,
+  StateInstanceBlock,
+  UseCaseFlowContent,
+} from '../types/diagram';
+import {
+  DEFAULT_FLOW_EXPORT_OPTIONS,
+  type FlowExportOptions,
+} from '../types/useCaseFlowEditor';
 import type { ProjectSymbolIndex } from './projectSymbolIndex';
-import { bulletLinePattern, numberedLinePattern, stepIndent } from './useCaseFlowText';
-
-/*
- * The flow is written as plain text: numbered lines (`    3.1. Buscar …`),
- * `-` bullets for detail and free lines. Everything the editor shows on top of
- * that text (formatting, blocks, references, turn changes) and everything the
- * exports print is derived here, so the stored text stays the single truth.
- */
-
-export type FlowLineKind = 'step' | 'bullet' | 'text';
-
-export type FlowLine = {
-  kind: FlowLineKind;
-  /** Leading whitespace length. */
-  indent: number;
-  /** `3.1` for a numbered line. */
-  number?: string;
-  /** Number depth for a step (3.1 → 2); 0 for bullets and free text. */
-  level: number;
-  /** Marker as typed, with its indentation (`    3.1. `, `        - `). */
-  marker: string;
-  /** Text after the marker, without trailing path references. */
-  body: string;
-  /** Alternative paths referenced from this line with a trailing `[CA 2]`. */
-  refs: string[];
-  /** Trailing reference tokens as typed, including the spaces before them. */
-  refSuffix: string;
-};
-
-const trailingRefPattern = /\s*\[(C\.?\s?A\.?\s*(?:N°\s*)?\d+)\]\s*$/i;
-
-/** `CA 2`, `C.A N°2` and `ca2` name the same path. */
-export const normalizeFlowCode = (code: string): string => {
-  const digits = /(\d+)\s*$/.exec(code.trim())?.[1];
-  return digits === undefined ? code.trim().toUpperCase() : `CA ${Number(digits)}`;
-};
-
-const splitTrailingRefs = (text: string): { body: string; refs: string[]; refSuffix: string } => {
-  let body = text;
-  const refs: string[] = [];
-
-  for (let match = trailingRefPattern.exec(body); match !== null; match = trailingRefPattern.exec(body)) {
-    refs.unshift(normalizeFlowCode(match[1]));
-    body = body.slice(0, match.index);
-  }
-
-  return { body, refs, refSuffix: text.slice(body.length) };
-};
-
-export const parseFlowLine = (text: string): FlowLine => {
-  const numbered = numberedLinePattern.exec(text);
-
-  if (numbered !== null) {
-    const { body, refs, refSuffix } = splitTrailingRefs(numbered[3]);
-    return {
-      kind: 'step',
-      indent: numbered[1].length,
-      number: numbered[2],
-      level: numbered[2].split('.').length,
-      marker: text.slice(0, text.length - numbered[3].length),
-      body,
-      refs,
-      refSuffix,
-    };
-  }
-
-  const bullet = bulletLinePattern.exec(text);
-
-  if (bullet !== null) {
-    const { body, refs, refSuffix } = splitTrailingRefs(bullet[2]);
-    return {
-      kind: 'bullet',
-      indent: bullet[1].length,
-      level: 0,
-      marker: text.slice(0, text.length - bullet[2].length),
-      body,
-      refs,
-      refSuffix,
-    };
-  }
-
-  const indentation = /^\s*/.exec(text)?.[0] ?? '';
-  const { body, refs, refSuffix } = splitTrailingRefs(text.slice(indentation.length));
-  return { kind: 'text', indent: indentation.length, level: 0, marker: indentation, body, refs, refSuffix };
-};
-
-export const parseFlowText = (value: string): FlowLine[] => value.split('\n').map(parseFlowLine);
-
-/**
- * Depth of each bullet counted from the step it details, so the first level
- * prints ●, the next ○ and the third ■ — as the handwritten documents do.
- */
-export const getBulletDepths = (lines: FlowLine[]): number[] => {
-  const stack: Array<{ indent: number; bullet: boolean }> = [];
-
-  return lines.map((line) => {
-    if (line.kind === 'text' && line.body.trim().length === 0) {
-      return 0;
-    }
-
-    while (stack.length > 0 && stack[stack.length - 1].indent >= line.indent) {
-      stack.pop();
-    }
-
-    let depth = 0;
-    if (line.kind === 'bullet') {
-      for (let index = stack.length - 1; index >= 0 && stack[index].bullet; index -= 1) {
-        depth += 1;
-      }
-    }
-
-    stack.push({ indent: line.indent, bullet: line.kind === 'bullet' });
-    return depth;
-  });
-};
-
-// ---------------------------------------------------------------------------
-// Tables: the actor and system cells of every row read as one sequence.
-
-export type FlowTableLine = FlowLine & {
-  field: FlowTextField;
-  lineIndex: number;
-  rowIndex: number;
-  stepId: string;
-};
-
-export const flattenFlowRows = (rows: UseCaseFlowStep[]): FlowTableLine[] =>
-  rows.flatMap((row, rowIndex) =>
-    (['actor', 'system'] as const).flatMap((field) =>
-      row[field].length === 0
-        ? []
-        : parseFlowText(row[field]).map((line, lineIndex) => ({ ...line, field, lineIndex, rowIndex, stepId: row.id })),
-    ),
-  );
-
-const blockOpenerPattern = /^(POR\s+CADA|SI\b|SINO\b|MIENTRAS\b|REPETIR\b)/i;
-
-export const isBlockOpener = (body: string): boolean => blockOpenerPattern.test(body.trim());
-
-/** Level of the step a line belongs to (its own level, or the step above a bullet). */
-const getOwningStepLevel = (lines: FlowTableLine[], index: number): number => {
-  for (let current = index; current >= 0; current -= 1) {
-    if (lines[current].kind === 'step') {
-      return lines[current].level;
-    }
-  }
-
-  return 1;
-};
-
-/**
- * True when the line sits inside a POR CADA or SI block. There the other side
- * answers once per iteration or branch, so its turn keeps the block's numbering
- * (7.4.2.1 → 7.4.2.2) instead of opening the next main step.
- */
-export const isInsideFlowBlock = (lines: FlowTableLine[], index: number): boolean => {
-  let level = getOwningStepLevel(lines, index);
-
-  if (level <= 1) {
-    return false;
-  }
-
-  for (let current = index - 1; current >= 0 && level > 1; current -= 1) {
-    const line = lines[current];
-
-    if (line.kind !== 'step' || line.level >= level) {
-      continue;
-    }
-
-    if (isBlockOpener(line.body)) {
-      return true;
-    }
-
-    level = line.level;
-  }
-
-  return false;
-};
-
-/**
- * Level of the line that opens the other side's turn after `⌘↵`: the next main
- * step by default, the same level inside a block. `invert` swaps the two.
- */
-export const getTurnSwitchLevel = (
-  rows: UseCaseFlowStep[],
-  stepId: string,
-  field: FlowTextField,
-  lineIndex: number,
-  invert = false,
-): number => {
-  const lines = flattenFlowRows(rows);
-  const index = lines.findIndex((line) => line.stepId === stepId && line.field === field && line.lineIndex === lineIndex);
-
-  if (index < 0) {
-    return 1;
-  }
-
-  const inside = isInsideFlowBlock(lines, index);
-  const blockLevel = Math.max(2, getOwningStepLevel(lines, index));
-  return inside !== invert ? blockLevel : 1;
-};
-
-/** `3.1.1. ` with the indentation of its level; numbering fixes the digits. */
-export const createStepLine = (level: number, text = ''): string => {
-  const safeLevel = Math.max(1, level);
-  return `${stepIndent.repeat(safeLevel - 1)}${Array.from({ length: safeLevel }, () => '1').join('.')}. ${text}`;
-};
-
-/**
- * A step whose number was deleted while its cell had focus keeps its text and
- * gets its number back when the cell loses focus. `before` is the remembered
- * text (see `rememberStepLines`); the first line is compared on its own, the
- * other lines (sub-steps included) only while the cell kept its line count, so
- * inserted or removed lines never shift a number onto the wrong text. Only the
- * lost prefix comes back, with its own indentation and digits: the table
- * renumbers afterwards. Bullets (`- `) are not steps and stay untouched.
- */
-export const restoreLostStepMarker = (before: string, after: string): string => {
-  const previousLines = before.split('\n');
-  const lines = after.split('\n');
-  const sameShape = previousLines.length === lines.length;
-
-  return lines
-    .map((line, index) => {
-      if (index > 0 && !sameShape) return line;
-
-      const previous = parseFlowLine(previousLines[index] ?? '');
-      const current = parseFlowLine(line);
-
-      if (previous.kind !== 'step' || previous.number === undefined) return line;
-      if (current.kind !== 'text' || current.body.trim().length === 0) return line;
-
-      return `${stepIndent.repeat(Math.max(0, previous.level - 1))}${previous.number}. ${line.trimStart()}`;
-    })
-    .join('\n');
-};
-
-/**
- * Text to remember for `restoreLostStepMarker`: `previous` (the cell before a
- * change) with every numbered line kept. A line that already lost its number
- * keeps the one remembered at the same position, so deleting a prefix and then
- * typing on does not forget it. Returns `undefined` when nothing is a step.
- */
-export const rememberStepLines = (remembered: string | undefined, previous: string): string | undefined => {
-  const previousLines = previous.split('\n');
-  const rememberedLines = remembered?.split('\n');
-  const sameShape = rememberedLines?.length === previousLines.length;
-
-  const merged = previousLines.map((line, index) => {
-    if (parseFlowLine(line).kind === 'step') return line;
-    const old = rememberedLines?.[index];
-    const keepsOld = old !== undefined && parseFlowLine(old).kind === 'step' && (index === 0 || sameShape);
-    return keepsOld ? old : line;
-  });
-
-  return merged.some((line) => parseFlowLine(line).kind === 'step') ? merged.join('\n') : undefined;
-};
-
-// ---------------------------------------------------------------------------
-// Alternative paths.
-
-/** Where a path branches off: the first line in any table that references it. */
-export const findFlowBranch = (
-  content: UseCaseFlowContent,
-  code: string,
-): { number?: string; tableCode: 'basic' | string; stepId: string; field: FlowTextField; lineIndex: number } | null => {
-  const target = normalizeFlowCode(code);
-  const tables: Array<{ tableCode: string; rows: UseCaseFlowStep[] }> = [
-    { tableCode: 'basic', rows: content.basicFlow },
-    ...content.alternativeFlows
-      .filter((flow) => normalizeFlowCode(flow.code) !== target)
-      .map((flow) => ({ tableCode: normalizeFlowCode(flow.code), rows: flow.steps })),
-  ];
-
-  for (const table of tables) {
-    const lines = flattenFlowRows(table.rows);
-    const rowRefIndex = table.rows.findIndex((row) => row.ref.trim().length > 0 && normalizeFlowCode(row.ref) === target);
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
-      const referencesPath = line.refs.includes(target);
-      const referencedByRow = rowRefIndex === line.rowIndex && index === lines.findIndex((candidate) => candidate.rowIndex === rowRefIndex);
-
-      if (!referencesPath && !referencedByRow) {
-        continue;
-      }
-
-      let number = line.number;
-      for (let current = index; number === undefined && current >= 0; current -= 1) {
-        number = lines[current].number;
-      }
-
-      return { number, tableCode: table.tableCode, stepId: line.stepId, field: line.field, lineIndex: line.lineIndex };
-    }
-  }
-
-  return null;
-};
-
-/** A path continues the main numbering: branching at 7.4 it starts at 8. */
-export const getDefaultFirstStepNumber = (content: UseCaseFlowContent, flow: AlternativeUseCaseFlow): number => {
-  const branch = findFlowBranch(content, flow.code);
-  const main = Number(branch?.number?.split('.')[0]);
-  return Number.isFinite(main) && main > 0 ? main + 1 : 1;
-};
-
-export const getFirstStepNumber = (content: UseCaseFlowContent, flow: AlternativeUseCaseFlow): number =>
-  flow.firstStepNumber ?? getDefaultFirstStepNumber(content, flow);
-
-/** Appends ` [CA 2]` to a line once. */
-export const appendLineRef = (value: string, lineIndex: number, code: string): string => {
-  const lines = value.split('\n');
-  const line = parseFlowLine(lines[lineIndex] ?? '');
-
-  if (line.refs.includes(normalizeFlowCode(code))) {
-    return value;
-  }
-
-  lines[lineIndex] = `${(lines[lineIndex] ?? '').trimEnd()} [${normalizeFlowCode(code)}]`;
-  return lines.join('\n');
-};
-
-// ---------------------------------------------------------------------------
-// Inline tokens, shared by the live formatting and the exports.
+import {
+  computeFlowNumbering,
+  extractPseudoEntities,
+  formatAlternativeRef,
+  formatAlternativeTitle,
+  formatFlowRef,
+  formatInputParameters,
+  formatJumpTargetText,
+  formatStateDetailText,
+  formatStateInstanceHeader,
+  formatStepAnchorSuffix,
+  type FlowNumberingIndex,
+} from './useCaseFlowModel';
 
 export type FlowInlineKind = 'plain' | 'class' | 'attribute' | 'keyword' | 'stepRef' | 'pathRef' | 'literal';
 
 export type FlowInlineToken = { kind: FlowInlineKind; text: string };
 
-export type FlowVocabulary = { attributes: Set<string>; classes: Set<string> };
-
-export const buildFlowVocabulary = (symbolIndex: ProjectSymbolIndex, extraClasses: string[] = []): FlowVocabulary => ({
-  classes: new Set([...symbolIndex.classes.map((symbolClass) => symbolClass.name), ...extraClasses]),
-  attributes: new Set(symbolIndex.classes.flatMap((symbolClass) => symbolClass.attributes.map((attribute) => attribute.name))),
-});
-
-/** Names introduced with `Definir pseudoentidad DTOX(…)`, which read as classes. */
-export const findPseudoEntities = (texts: string[]): Array<{ fields: string[]; name: string }> => {
-  const found = new Map<string, string[]>();
-
-  texts.forEach((text) => {
-    for (const match of text.matchAll(/Definir\s+pseudo-?entidad\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ_][\wÁÉÍÓÚÜÑáéíóúüñ]*)\s*\(([^)]*)\)/gi)) {
-      const fields = match[2]
-        .split(',')
-        .map((field) => field.trim())
-        .filter((field) => field.length > 0);
-      found.set(match[1], fields);
-    }
-  });
-
-  return Array.from(found, ([name, fields]) => ({ name, fields }));
+export type FlowVocabulary = {
+  attributes: Set<string>;
+  classes: Set<string>;
 };
 
-const keywordPattern = /^(POR\s+CADA|FIN\s+SI|FIN\s+CU|FIN\s+CASO\s+DE\s+USO|SINO|SI|MIENTRAS|REPETIR|Retornar\s+a|Ir\s+a)\b/i;
+export const buildFlowVocabulary = (
+  symbolIndex: ProjectSymbolIndex,
+  extraClasses: string[] = [],
+  extraAttributes: string[] = [],
+): FlowVocabulary => ({
+  classes: new Set([
+    ...symbolIndex.classes.map((cls) => cls.name),
+    ...extraClasses.filter(Boolean),
+  ]),
+  attributes: new Set([
+    ...symbolIndex.classes.flatMap((cls) => cls.attributes.map((attr) => attr.name)),
+    ...extraAttributes.filter(Boolean),
+  ]),
+});
 
-const inlinePattern =
-  /(\((?:ver\s+)?pasos?\s+[^)]*\))|(\bpasos?\s+(?:N°\s*)?\[?\d+(?:\.\d+)*\]?)|(\[C\.?\s?A\.?\s*(?:N°\s*)?\d+\])|("[^"\n]*"?|“[^”\n]*”?)|([A-Za-zÁÉÍÓÚÜÑáéíóúüñ_][\wÁÉÍÓÚÜÑáéíóúüñ]*)/g;
+const KEYWORD_PREFIX_RE =
+  /^(Por\s+cada|Mientras|FINSI|FIN\s+SI|SINO|SI|Fin\s+CU|Guardar\s+Cambios|Ir\s+a\s+paso|Ir\s+a\s+CU|Definir\s+pseudo-?entidad|Invocar\s+servicio)\b/i;
 
-export const tokenizeFlowInline = (text: string, vocabulary: FlowVocabulary, detectKeyword = true): FlowInlineToken[] => {
+const INLINE_TOKEN_RE =
+  /(\((?:ver\s+)?pasos?\s+[^)]*\))|(\bpasos?\s+(?:N°\s*)?\[?\d+(?:\.\d+)*\]?)|(\b(?:CA\s*N°\s*\d+|GUI-\d+)\b)|("[^"\n]*"?|“[^”\n]*”?|‘[^’\n]*’?|'[^'\n]*'?)|([A-Za-zÁÉÍÓÚÜÑáéíóúüñ_][\wÁÉÍÓÚÜÑáéíóúüñ]*)/g;
+
+export const tokenizeFlowInline = (
+  text: string,
+  vocabulary: FlowVocabulary,
+  detectKeyword = true,
+): FlowInlineToken[] => {
   const tokens: FlowInlineToken[] = [];
   const push = (kind: FlowInlineKind, value: string): void => {
-    if (value.length === 0) {
+    if (!value) return;
+    const prev = tokens[tokens.length - 1];
+    if (prev && prev.kind === kind && kind === 'plain') {
+      prev.text += value;
       return;
     }
-
-    const previous = tokens[tokens.length - 1];
-    if (previous !== undefined && previous.kind === kind && kind === 'plain') {
-      previous.text += value;
-      return;
-    }
-
     tokens.push({ kind, text: value });
   };
 
   let rest = text;
   if (detectKeyword) {
-    const keyword = keywordPattern.exec(text);
-    if (keyword !== null) {
-      push('keyword', keyword[0]);
-      rest = text.slice(keyword[0].length);
+    const kw = KEYWORD_PREFIX_RE.exec(text);
+    if (kw) {
+      push('keyword', kw[0]);
+      rest = text.slice(kw[0].length);
     }
   }
 
   let lastIndex = 0;
-  for (const match of rest.matchAll(inlinePattern)) {
+  for (const match of rest.matchAll(INLINE_TOKEN_RE)) {
     const index = match.index ?? 0;
     push('plain', rest.slice(lastIndex, index));
     lastIndex = index + match[0].length;
@@ -409,185 +106,469 @@ export const tokenizeFlowInline = (text: string, vocabulary: FlowVocabulary, det
   return tokens;
 };
 
-/** `Si el estado …` lines title each scenario of the initial and final states. */
-export const isStateScenarioHeading = (line: string): boolean => /^\s*Si\b/i.test(line) && !/^\s*[•◦▪-]/.test(line);
-
 // ---------------------------------------------------------------------------
-// Document model, printed by the PDF and Word exports.
+// Intermediate Document Model shared by PDF, DOCX, Viewer & Editor Print Preview
 
-export type FlowDocSegment = { bold?: boolean; italic?: boolean; text: string; underline?: boolean };
+export type FlowDocSegment = {
+  bold?: boolean;
+  italic?: boolean;
+  text: string;
+  underline?: boolean;
+};
 
 export type FlowDocLine = {
   /** 0 = ●, 1 = ○, 2 = ■. */
   bullet?: number;
   bold?: boolean;
-  /** Visual depth, in indentation steps. */
+  /** Visual indentation depth (0 = main step, 1 = 4.1, 2 = inside loop/if, etc.). */
   depth: number;
-  /** `3.1.` for a numbered line. */
+  /** Displayed step number, e.g. "4." or "4.1." (absent for bullets, SINO, FINSI). */
   number?: string;
   refs: string[];
   segments: FlowDocSegment[];
+  /** Number of active nested loop boxes enclosing this line (0 outside loops). */
+  loopDepth?: number;
+  /** Number of loop boxes that open immediately at this line. */
+  loopStarts?: number;
+  /** Number of loop boxes that close immediately after this line. */
+  loopEnds?: number;
 };
 
-export type FlowDocRow = { actor: FlowDocLine[]; ref: string; system: FlowDocLine[] };
+export type FlowDocSubRow = {
+  actor: FlowDocLine[];
+  system: FlowDocLine[];
+  ref: string;
+};
 
-export type FlowDocTable = { rows: FlowDocRow[]; title: string };
+export type FlowDocRow = {
+  stepId: string;
+  subRows: FlowDocSubRow[];
+};
 
-export type FlowDocField = { label: string; lines: FlowDocLine[] };
+export type FlowDocTable = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  rows: FlowDocRow[];
+};
+
+export type FlowDocField = {
+  label: string;
+  lines: FlowDocLine[];
+};
 
 export type FlowDocument = {
-  alternatives: FlowDocTable[];
-  basic: FlowDocTable;
-  fields: FlowDocField[];
   title: string;
+  useCaseNumber: string;
+  useCaseName: string;
+  includeDescription: boolean;
+  includeBasicFlow: boolean;
+  includeAlternatives: boolean;
+  fields: FlowDocField[];
+  basic: FlowDocTable;
+  alternatives: FlowDocTable[];
 };
 
-const plainSegments = (text: string): FlowDocSegment[] => (text.length === 0 ? [] : [{ text }]);
-
-const flowCellToDocLines = (value: string): FlowDocLine[] => {
-  if (value.trim().length === 0) {
-    return [];
-  }
-
-  const lines = parseFlowText(value);
-  const bulletDepths = getBulletDepths(lines);
-  let stepDepth = 0;
-
-  return lines
-    .map((line, index) => {
-      if (line.kind === 'step') {
-        stepDepth = line.level - 1;
-        return {
-          bold: line.level === 1,
-          depth: stepDepth,
-          number: `${line.number}.`,
-          refs: line.refs,
-          segments: plainSegments(line.body.trim()),
-        };
-      }
-
-      if (line.kind === 'bullet') {
-        return {
-          bullet: Math.min(2, bulletDepths[index]),
-          depth: stepDepth + 1 + bulletDepths[index],
-          refs: line.refs,
-          segments: plainSegments(line.body.trim()),
-        };
-      }
-
-      return { depth: stepDepth + (line.indent > 0 ? 1 : 0), refs: line.refs, segments: plainSegments(line.body.trim()) };
-    })
-    .filter((line, index, all) => line.segments.length > 0 || line.number !== undefined || (index > 0 && index < all.length - 1));
-};
-
-const stateBulletPattern = /^(\s*)([•◦▪-])\s?(.*)$/;
-
-const stateTextToDocLines = (value: string, vocabulary: FlowVocabulary): FlowDocLine[] => {
-  if (value.trim().length === 0) {
-    return [];
-  }
-
-  return value.split('\n').map((raw) => {
-    const bullet = stateBulletPattern.exec(raw);
-    const text = (bullet?.[3] ?? raw).trim();
-    const segments: FlowDocSegment[] = tokenizeFlowInline(text, vocabulary, false).map((token) => ({
-      text: token.text,
+const tokensToSegments = (
+  text: string,
+  vocabulary: FlowVocabulary,
+  options: { detectKeyword?: boolean; forceBold?: boolean; uppercaseKeyword?: boolean } = {},
+): FlowDocSegment[] => {
+  if (!text) return [];
+  const tokens = tokenizeFlowInline(text, vocabulary, options.detectKeyword ?? true);
+  return tokens.map((token) => {
+    const isStrongKw = token.kind === 'keyword' && /^(SI|SINO|FINSI|FIN\s+SI)$/i.test(token.text);
+    const outText = isStrongKw && options.uppercaseKeyword ? token.text.toUpperCase() : token.text;
+    return {
+      text: outText,
+      bold: options.forceBold || isStrongKw || undefined,
       underline: token.kind === 'class' || undefined,
       italic: token.kind === 'attribute' || undefined,
-    }));
-
-    if (bullet !== null) {
-      const level = Math.floor(bullet[1].length / stepIndent.length);
-      return { bullet: Math.min(2, level), depth: level + 1, refs: [], segments };
-    }
-
-    const heading = isStateScenarioHeading(raw);
-    return {
-      bold: heading || undefined,
-      depth: 0,
-      refs: [],
-      segments: heading ? segments.map((segment) => ({ ...segment, bold: true })) : segments,
     };
   });
 };
 
-const toDocRows = (rows: UseCaseFlowStep[]): FlowDocRow[] =>
-  rows
-    .filter((row) => row.actor.trim().length > 0 || row.system.trim().length > 0)
-    .map((row) => ({ actor: flowCellToDocLines(row.actor), system: flowCellToDocLines(row.system), ref: row.ref.trim() }));
+const stateDetailsToDocLines = (
+  details: StateDetailItem[],
+  vocabulary: FlowVocabulary,
+  depth = 0,
+): FlowDocLine[] =>
+  details.flatMap((detail): FlowDocLine[] => {
+    const text = formatStateDetailText(detail);
+    const line: FlowDocLine = {
+      bullet: Math.min(2, depth),
+      depth: depth + 1,
+      refs: [],
+      segments: tokensToSegments(text, vocabulary, { detectKeyword: false }),
+    };
+    if (detail.kind === 'relation' && detail.children.length > 0) {
+      return [line, ...stateDetailsToDocLines(detail.children, vocabulary, depth + 1)];
+    }
+    return [line];
+  });
+
+const stateInstanceToDocLines = (
+  inst: StateInstanceBlock,
+  vocabulary: FlowVocabulary,
+): FlowDocLine[] => [
+  {
+    depth: 0,
+    refs: [],
+    segments: tokensToSegments(formatStateInstanceHeader(inst), vocabulary, { detectKeyword: false }),
+  },
+  ...stateDetailsToDocLines(inst.details, vocabulary, 0),
+];
+
+const stateBlocksToDocLines = (
+  blocks: StateBlock[],
+  vocabulary: FlowVocabulary,
+  emptyFallback = '',
+): FlowDocLine[] => {
+  if (blocks.length === 0) {
+    return emptyFallback ? [{ depth: 0, refs: [], segments: [{ text: emptyFallback }] }] : [];
+  }
+  const lines: FlowDocLine[] = [];
+  blocks.forEach((block, index) => {
+    if (index > 0 && (block.kind === 'section' || block.kind === 'condition' || block.kind === 'instance')) {
+      lines.push({ depth: 0, refs: [], segments: [] });
+    }
+    if (block.kind === 'section') {
+      lines.push({
+        bold: true,
+        depth: 0,
+        refs: [],
+        segments: [{ text: block.title, bold: true }],
+      });
+    } else if (block.kind === 'free-text') {
+      block.text.split('\n').forEach((raw) => {
+        lines.push({
+          depth: 0,
+          refs: [],
+          segments: tokensToSegments(raw, vocabulary, { detectKeyword: false }),
+        });
+      });
+    } else if (block.kind === 'instance') {
+      lines.push(...stateInstanceToDocLines(block, vocabulary));
+    } else {
+      const cond = block.condition.trim();
+      const heading = cond ? (/^si\b/i.test(cond) ? (cond.endsWith(':') ? cond : `${cond}:`) : `Si ${cond}:`) : 'Si:';
+      lines.push({
+        bold: true,
+        depth: 0,
+        refs: [],
+        segments: tokensToSegments(heading, vocabulary, { detectKeyword: false, forceBold: true }),
+      });
+      block.blocks.forEach((inst) => {
+        lines.push(...stateInstanceToDocLines(inst, vocabulary));
+      });
+    }
+  });
+  return lines;
+};
+
+const formatDetailsToDocLines = (
+  details: FlowDetailItem[],
+  content: UseCaseFlowContent,
+  numbering: FlowNumberingIndex,
+  flowId: 'basic' | string,
+  vocabulary: FlowVocabulary,
+  baseDepth: number,
+  loopDepth: number,
+  bulletDepth = 0,
+): FlowDocLine[] =>
+  details.flatMap((detail): FlowDocLine[] => {
+    const suffix = formatStepAnchorSuffix(detail.stepRef, content, numbering, flowId);
+    const fullText = suffix ? `${detail.text.trimEnd()} ${suffix}` : detail.text;
+    const line: FlowDocLine = {
+      bullet: Math.min(2, bulletDepth),
+      depth: baseDepth + bulletDepth,
+      refs: [],
+      segments: tokensToSegments(fullText, vocabulary, { detectKeyword: false }),
+      ...(loopDepth > 0 ? { loopDepth } : {}),
+    };
+    if (detail.children && detail.children.length > 0) {
+      return [
+        line,
+        ...formatDetailsToDocLines(
+          detail.children,
+          content,
+          numbering,
+          flowId,
+          vocabulary,
+          baseDepth,
+          loopDepth,
+          bulletDepth + 1,
+        ),
+      ];
+    }
+    return [line];
+  });
+
+const buildMainStepRow = (
+  step: FlowMainStep,
+  content: UseCaseFlowContent,
+  numbering: FlowNumberingIndex,
+  flowId: 'basic' | string,
+  vocabulary: FlowVocabulary,
+): FlowDocRow => {
+  const mainNum = numbering.stepNumberById.get(step.id) ?? '';
+  const mainRefText = step.refs.map((ref) => formatFlowRef(ref, content)).filter(Boolean).join('\n');
+  const titleText = step.jumpTarget
+    ? formatJumpTargetText(step.jumpTarget, content, numbering, step.title)
+    : (() => {
+        const suffix = formatStepAnchorSuffix(step.stepRef, content, numbering, flowId);
+        return suffix ? `${step.title.trimEnd()} ${suffix}` : step.title;
+      })();
+
+  const mainLine: FlowDocLine = {
+    bold: true,
+    depth: 0,
+    number: mainNum ? `${mainNum}.` : undefined,
+    refs: step.refs.map((ref) => formatFlowRef(ref, content)).filter(Boolean),
+    segments: tokensToSegments(titleText, vocabulary, { forceBold: true }),
+  };
+
+  const mainDetails = step.details && step.details.length > 0
+    ? formatDetailsToDocLines(step.details, content, numbering, flowId, vocabulary, 1, 0)
+    : [];
+
+  const subRows: FlowDocSubRow[] = [
+    step.speaker === 'actor'
+      ? { actor: [mainLine, ...mainDetails], system: [], ref: mainRefText }
+      : { actor: [], system: [mainLine, ...mainDetails], ref: mainRefText },
+  ];
+
+  // Recursively emit aligned sub-rows for every child sub-node so Ref. aligns pixel-perfectly.
+  const emitSubNodes = (nodes: FlowSubNode[], depth: number, loopDepth: number): void => {
+    for (const node of nodes) {
+      const num = numbering.stepNumberById.get(node.id) ?? '';
+      const refs = node.refs.map((ref) => formatFlowRef(ref, content)).filter(Boolean);
+      const refText = refs.join('\n');
+
+      if (node.kind === 'action') {
+        const speaker = node.speaker ?? 'system';
+        const display = node.jumpTarget
+          ? formatJumpTargetText(node.jumpTarget, content, numbering, node.text)
+          : (() => {
+              const suffix = formatStepAnchorSuffix(node.stepRef, content, numbering, flowId);
+              return suffix ? `${node.text.trimEnd()} ${suffix}` : node.text;
+            })();
+        const line: FlowDocLine = {
+          bold: speaker === 'actor' || undefined,
+          depth,
+          number: num ? `${num}.` : undefined,
+          refs,
+          segments: tokensToSegments(display, vocabulary, { forceBold: speaker === 'actor' }),
+          ...(loopDepth > 0 ? { loopDepth } : {}),
+        };
+        const detailLines = formatDetailsToDocLines(
+          node.details,
+          content,
+          numbering,
+          flowId,
+          vocabulary,
+          depth + 1,
+          loopDepth,
+        );
+        if (speaker === 'actor') {
+          subRows.push({ actor: [line, ...detailLines], system: [], ref: refText });
+        } else {
+          subRows.push({ actor: [], system: [line, ...detailLines], ref: refText });
+        }
+      } else if (node.kind === 'loop') {
+        const nextLoopDepth = loopDepth + 1;
+        const suffix = formatStepAnchorSuffix(node.stepRef, content, numbering, flowId);
+        const headerText = suffix ? `${node.header.trimEnd()} ${suffix}` : node.header;
+        const startRowIdx = subRows.length;
+        const headerLine: FlowDocLine = {
+          depth,
+          number: num ? `${num}.` : undefined,
+          refs,
+          segments: tokensToSegments(headerText, vocabulary),
+          loopDepth: nextLoopDepth,
+          loopStarts: 1,
+        };
+        const detailLines = formatDetailsToDocLines(
+          node.details,
+          content,
+          numbering,
+          flowId,
+          vocabulary,
+          depth + 1,
+          nextLoopDepth,
+        );
+        subRows.push({ actor: [], system: [headerLine, ...detailLines], ref: refText });
+        emitSubNodes(node.children, depth + 1, nextLoopDepth);
+
+        // Mark the very last system line emitted inside this loop with loopEnds += 1
+        for (let r = subRows.length - 1; r >= startRowIdx; r -= 1) {
+          const sysLines = subRows[r].system;
+          if (sysLines.length > 0) {
+            const last = sysLines[sysLines.length - 1];
+            last.loopEnds = (last.loopEnds ?? 0) + 1;
+            break;
+          }
+        }
+      } else {
+        // Conditional: SI [cond] → thenChildren → (SINO → elseChildren) → FINSI (SINO & FINSI unnumbered!)
+        const condText = node.condition.trim();
+        const siSegments: FlowDocSegment[] = [
+          { text: 'SI', bold: true },
+          ...(condText ? [{ text: ' ' }, ...tokensToSegments(condText, vocabulary, { detectKeyword: false })] : []),
+        ];
+        subRows.push({
+          actor: [],
+          system: [{
+            depth,
+            number: num ? `${num}.` : undefined,
+            refs,
+            segments: siSegments,
+            ...(loopDepth > 0 ? { loopDepth } : {}),
+          }],
+          ref: refText,
+        });
+        emitSubNodes(node.thenChildren, depth + 1, loopDepth);
+        if (node.elseChildren !== undefined) {
+          subRows.push({
+            actor: [],
+            system: [{
+              depth,
+              refs: [],
+              segments: [{ text: 'SINO', bold: true }],
+              ...(loopDepth > 0 ? { loopDepth } : {}),
+            }],
+            ref: '',
+          });
+          emitSubNodes(node.elseChildren, depth + 1, loopDepth);
+        }
+        subRows.push({
+          actor: [],
+          system: [{
+            depth,
+            refs: [],
+            segments: [{ text: 'FINSI', bold: true }],
+            ...(loopDepth > 0 ? { loopDepth } : {}),
+          }],
+          ref: '',
+        });
+      }
+    }
+  };
+
+  emitSubNodes(step.children, 1, 0);
+  return { stepId: step.id, subRows };
+};
 
 export const buildFlowDocument = (
   content: UseCaseFlowContent,
   artifactName: string,
   symbolIndex: ProjectSymbolIndex,
+  options: Partial<FlowExportOptions> = {},
 ): FlowDocument => {
-  const allText = [
-    ...content.basicFlow.flatMap((row) => [row.actor, row.system]),
-    ...content.alternativeFlows.flatMap((flow) => flow.steps.flatMap((row) => [row.actor, row.system])),
-  ];
+  const opts: FlowExportOptions = { ...DEFAULT_FLOW_EXPORT_OPTIONS, ...options };
+  const numbering = computeFlowNumbering(content);
+  const pseudoEntities = extractPseudoEntities(content);
   const vocabulary = buildFlowVocabulary(
     symbolIndex,
-    findPseudoEntities(allText).map((entity) => entity.name),
+    pseudoEntities.map((pe) => pe.name),
+    pseudoEntities.flatMap((pe) => pe.fields),
   );
-  const description = content.description;
+  const desc = content.description;
+  const displayName = desc.useCaseName.trim() || artifactName;
   const textField = (label: string, value: string): FlowDocField => ({
     label,
-    lines: value.split('\n').map((line) => ({ depth: 0, refs: [], segments: plainSegments(line) })),
+    lines: (value.trim().length === 0 ? [''] : value.split('\n')).map((line) => ({
+      depth: 0,
+      refs: [],
+      segments: line ? [{ text: line }] : [],
+    })),
   });
 
+  const allFields: FlowDocField[] = [
+    textField('Número', desc.useCaseNumber),
+    textField('Nombre del Caso de Uso', displayName),
+    textField('Actor', desc.actor),
+    textField('Descripción', desc.description),
+    textField('Prioridad', desc.priority),
+    textField('Parámetros de Entrada', formatInputParameters(desc.inputParameters)),
+    ...(desc.precondition.trim().length > 0 ? [textField('Precondición', desc.precondition)] : []),
+    { label: 'Estado Inicial', lines: stateBlocksToDocLines(desc.initialState, vocabulary) },
+    { label: 'Estado Final', lines: stateBlocksToDocLines(desc.finalState, vocabulary, '-') },
+  ];
+
+  const fields = opts.descriptionMode === 'brief-and-initial'
+    ? allFields.filter((field) =>
+        ['Número', 'Nombre del Caso de Uso', 'Actor', 'Descripción', 'Estado Inicial'].includes(field.label))
+    : allFields;
+
+  const selectedAlts = opts.selectedAlternativeIds
+    ? content.alternativeFlows.filter((alt) => opts.selectedAlternativeIds!.includes(alt.id))
+    : content.alternativeFlows;
+
+  const cuBanner = desc.useCaseNumber.trim()
+    ? `CU N°${desc.useCaseNumber.trim()} — ${displayName}`
+    : displayName;
+
   return {
-    title: description.useCaseName.trim() || artifactName,
-    fields: [
-      textField('Número', description.useCaseNumber),
-      textField('Nombre Caso de Uso', description.useCaseName.trim() || artifactName),
-      textField('Actor', description.actor),
-      textField('Descripción', description.description),
-      textField('Prioridad', description.priority),
-      textField('Parámetros de entrada', description.inputParameters),
-      textField('Precondición', description.precondition),
-      textField('Postcondición', description.postcondition),
-      { label: 'Estado Inicial', lines: stateTextToDocLines(description.initialState, vocabulary) },
-      { label: 'Estado final', lines: stateTextToDocLines(description.finalState, vocabulary) },
-    ],
-    basic: { title: 'CAMINO BÁSICO', rows: toDocRows(content.basicFlow) },
-    alternatives: content.alternativeFlows.map((flow) => {
-      const number = /(\d+)\s*$/.exec(flow.code)?.[1] ?? flow.code;
-      return {
-        title: `CAMINO ALTERNO N° ${number}${flow.name.trim().length > 0 ? ` : ${flow.name.trim()}` : ''}`,
-        rows: toDocRows(flow.steps),
-      };
-    }),
+    title: displayName,
+    useCaseNumber: desc.useCaseNumber.trim(),
+    useCaseName: displayName,
+    includeDescription: opts.includeDescription,
+    includeBasicFlow: opts.includeBasicFlow,
+    includeAlternatives: opts.includeAlternatives,
+    fields,
+    basic: {
+      id: 'basic',
+      title: 'CAMINO BÁSICO',
+      subtitle: !opts.includeDescription ? cuBanner : undefined,
+      rows: content.basicFlow.map((step) => buildMainStepRow(step, content, numbering, 'basic', vocabulary)),
+    },
+    alternatives: selectedAlts.map((alt) => ({
+      id: alt.id,
+      title: formatAlternativeTitle(alt.number, alt.title),
+      rows: alt.steps.map((step) => buildMainStepRow(step, content, numbering, alt.id, vocabulary)),
+    })),
   };
 };
 
-/** `CA 2` → `C.A N°2`, the way the reference column is written by hand. */
-export const formatPathRef = (code: string): string => {
-  const digits = /(\d+)\s*$/.exec(code)?.[1];
-  return digits === undefined ? code : `C.A N°${digits}`;
-};
+/** Clean plain-text summary (for clipboard copy or quick review). */
+export const renderFlowPlainText = (doc: FlowDocument): string => {
+  const lines: string[] = [];
+  const formatLine = (line: FlowDocLine): string => {
+    const indent = '  '.repeat(line.depth);
+    const marker = line.number ? `${line.number} ` : line.bullet !== undefined ? `${['•', '◦', '▪'][line.bullet]} ` : '';
+    return `${indent}${marker}${line.segments.map((s) => s.text).join('')}`.trimEnd();
+  };
 
-export type FlowDocRowPart = { actor: FlowDocLine[]; ref: string; system: FlowDocLine[] };
-
-/**
- * Splits a row where a system line carries its own reference, so the Ref.
- * column prints `C.A N°2` level with line 2.2 rather than at the top of step 2.
- */
-export const splitRowByRefs = (row: FlowDocRow): FlowDocRowPart[] => {
-  const parts: FlowDocRowPart[] = [];
-  const firstRefs = [row.ref, ...row.actor.flatMap((line) => line.refs)].filter((ref) => ref.length > 0);
-
-  row.system.forEach((line, index) => {
-    if (index === 0 || line.refs.length > 0) {
-      parts.push({ actor: [], system: [], ref: line.refs.map(formatPathRef).join(' ') });
-    }
-    parts[parts.length - 1].system.push(line);
-  });
-
-  if (parts.length === 0) {
-    parts.push({ actor: [], system: [], ref: '' });
+  if (doc.includeDescription) {
+    lines.push('=== LISTA DESCRIPTIVA ===');
+    doc.fields.forEach((field) => {
+      const body = field.lines.map(formatLine).join('\n');
+      if (field.lines.length <= 1) lines.push(`${field.label}: ${body || '-'}`);
+      else lines.push(`${field.label}:\n${body}`);
+    });
+    lines.push('');
   }
 
-  parts[0].actor = row.actor;
-  parts[0].ref = [...firstRefs.map(formatPathRef), parts[0].ref].filter((ref) => ref.length > 0).join(' ');
-  return parts;
+  const pushTable = (table: FlowDocTable): void => {
+    lines.push(`=== ${table.title} ===`);
+    table.rows.forEach((row) => {
+      row.subRows.forEach((sub) => {
+        const refSuffix = sub.ref ? `  [${sub.ref.replace(/\n/g, ', ')}]` : '';
+        if (sub.actor.length > 0) {
+          lines.push(`[Actor] ${sub.actor.map(formatLine).join('\n')}${refSuffix}`);
+        }
+        if (sub.system.length > 0) {
+          lines.push(`[Sistema] ${sub.system.map(formatLine).join('\n')}${refSuffix}`);
+        }
+      });
+    });
+    lines.push('');
+  };
+
+  if (doc.includeBasicFlow) pushTable(doc.basic);
+  if (doc.includeAlternatives) doc.alternatives.forEach(pushTable);
+  return lines.join('\n').trim();
 };
+
+export { formatAlternativeRef };

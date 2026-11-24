@@ -768,45 +768,53 @@ La cancelación condicional del ejemplo es un requisito ilustrativo de este domi
 
 ## 4. Flujo de sucesos (`use-case-flow`)
 
-Este artefacto es una especificación textual con camino básico y caminos alternativos. **No tiene `nodes`, `edges`, coordenadas ni carriles de secuencia.**
+Este artefacto representa la **Lista Descriptiva** y el **Flujo de Sucesos** (Camino Básico y Caminos Alternativos) con el formato estructurado v2 de la cátedra *Diseño de Sistemas (UTN FRM)*. **No tiene `nodes`, `edges`, coordenadas ni carriles de secuencia.** La numeración (`1.`, `4.1.`, `CA N°2` empezando en `5.`) se calcula automáticamente a partir del árbol de pasos; no escribas números dentro de `title` ni de `text`.
 
-### 4.1. Descripción y estado
+### 4.1. Lista Descriptiva (`content.description`)
 
-`content.description` incluye todos estos campos string:
+`content` incluye `version: 2`, `classDiagramArtifactId` opcional (`null` = «Sin referencia» explícita; omitido = toma el único `class-diagram` del proyecto), `basicFlowFirstStepNumber` opcional (default `1`), `description`, `basicFlow` y `alternativeFlows`.
 
-| Campo | Significado |
-| --- | --- |
-| `useCaseNumber` | Identificador legible del caso, por ejemplo `CU 1`; no es un ID de artefacto. |
-| `useCaseName` | Objetivo del actor, coherente con el modelo de casos de uso. |
-| `actor` | Rol principal que inicia o participa del flujo. |
-| `description` | Resumen del objetivo y del resultado. |
-| `priority` | Uno de `A`, `B`, `C`, según la prioridad acordada. |
-| `inputParameters` | Datos necesarios como texto, no como un arreglo JSON. |
-| `precondition`, `postcondition` | Condiciones anteriores y posteriores. |
-| `initialState`, `finalState` | Estados del dominio como texto; admiten saltos de línea `\n` y viñetas. |
+`content.description` contiene los **9 campos oficiales**:
 
-La vinculación opcional con el modelo de clases es `content.classDiagramArtifactId`, con el ID de un artefacto `class-diagram` del mismo proyecto. Se usa para consultar clases, atributos y operaciones al escribir. Si el campo falta, el editor usa el único diagrama de clases del proyecto; `null` significa «Sin referencia» elegida explícitamente y no se reemplaza. Para un proyecto generado por IA, escribí el vínculo explícito.
+| Campo | Tipo | Significado |
+| --- | --- | --- |
+| `useCaseNumber` | string | Número del CU (ej. `"1"`, `"16"`). |
+| `useCaseName` | string | Verbo en infinitivo + objeto (ej. `"Registrar pedido"`). |
+| `actor` | string | Actor principal/iniciador. |
+| `description` | string | Breve descripción del objetivo, alcance y reglas clave. |
+| `priority` | `"A" \| "B" \| "C"` | Prioridad del CU. |
+| `inputParameters` | `FlowInputParameter[]` | Arreglo de `{ id, name, options?, optional? }`. Se imprime separado por coma (`pNum, [pOpc], resp (Sí - No)`). |
+| `precondition` | string | Garantías de un CU previo que **no** se validan aquí (ej. `"Cliente instanciado (CU Loguear Usuario)"`). |
+| `initialState` | `StateBlock[]` | Árbol de instancias persistidas controladas al inicio (`section`, `condition`, `instance` con `qualifier: "existente"` y `details` anidables). |
+| `finalState` | `StateBlock[]` | Árbol de instancias creadas/modificadas (`qualifier: "creada" \| "modificada"`), secciones y ramas `Si ...:`. Vacío `[]` en consultas. |
 
-No hay un campo que vincule el flujo a un nodo del modelo de casos de uso: la coherencia del caso se establece mediante `useCaseNumber` y `useCaseName`. No inventes `useCaseModelArtifactId`, `useCaseNodeId` ni referencias semejantes.
+Cada `StateBlock` de tipo `instance` tiene `{ id, kind: "instance", multiplicity: "single" | "multiple" | "one-or-more", className, qualifier, details }`. Cada elemento de `details` es:
+- `{ id, kind: "attribute", attribute, comparator, value }`
+- `{ id, kind: "relation", multiplicity, className, relationNote?, children }`
+- `{ id, kind: "expression", text }`
 
-### 4.2. Camino básico, pasos y alternativas
+### 4.2. Camino Básico y Caminos Alternativos
 
-`content.basicFlow` es un arreglo ordenado de filas. Cada fila tiene cuatro strings: `id`, `actor`, `system` y `ref`.
+`content.basicFlow` y `alternativeFlows[].steps` son arreglos de `FlowMainStep` (pasos principales de nivel 1). **Actor y Sistema nunca comparten fila**: cada paso declara `speaker: "actor" | "system"`.
 
-- `actor` describe la acción del actor; `system`, la respuesta o acción del sistema. Se puede dejar una celda vacía con `""`.
-- **La numeración visible está escrita dentro de las celdas**: `"1. El comprador solicita…"`. El ID de fila no la reemplaza y no hay un campo `number` para eso.
-- Usá números consecutivos para acciones principales. Para subpasos, escribí `"    2.1. Validar los datos."`: la sangría recomendada es de cuatro espacios por nivel.
-- Una fila puede contener varias líneas separadas por `\n`, pero no mezcles varios turnos de actor/sistema en una misma celda. Priorizá una acción clara por paso y viñetas para detalles.
-- `ref` es un código de camino alternativo, por ejemplo `"CA 1"`, o `""`. No es una referencia al paso anterior ni un ID de artefacto.
-- También podés derivar a una alternativa con `[CA 1]` al final de la línea correspondiente. El código debe coincidir con una alternativa existente. No agregues un camino sin identificar su condición de entrada y su punto de derivación.
+- **`FlowMainStep`:** `{ id, speaker, primitive?, title, jumpTarget?, stepRef?, refs, children }`.
+- **`children` (`FlowSubNode[]`):**
+  - `kind: "action"`: `{ id, kind: "action", speaker?, primitive, text, semantic?, details, stepRef?, jumpTarget?, refs }`.
+  - `kind: "loop"`: `{ id, kind: "loop", loopKind: "por-cada" | "mientras", header, targetClass?, stepRef?, details, children, refs }`. Se dibuja en un recuadro visual.
+  - `kind: "conditional"`: `{ id, kind: "conditional", condition, thenChildren, elseChildren?, refs }`. `SINO` y `FINSI` se renderizan sin número en MAYÚSCULA NEGRITA.
+- **`refs` (`FlowRef[]`)** en cada paso o subpaso (se alinea exactamente a la altura de esa línea en la columna `Ref.`):
+  - `{ id, kind: "ca", flowId }` → se muestra `CA N°X` apuntando al `id` del camino alternativo.
+  - `{ id, kind: "gui", label }` → ej. `"GUI-1"`.
+- **`stepRef` y `jumpTarget` (`{ flowId: "basic" | string, stepId: string }`):** referencias cruzadas estables por ID que se renderizan automáticamente como `(paso 4.2)` o `Ir a paso 2 de camino principal`.
+- **`alternativeFlows`:** arreglo de `{ id, number, title, firstStepNumberOverride?, steps }`. Si se omite `firstStepNumberOverride`, el primer número se calcula automáticamente como `(paso principal donde se dispara) + 1`.
 
-`content.alternativeFlows` es un arreglo de objetos con `id`, `code`, `name` y `steps` (filas con el mismo formato). `code` identifica el camino, por ejemplo `"CA 1"`, y debe ser único. `firstStepNumber` es opcional y debe ser un entero positivo: controla el inicio de numeración al editar; los números visibles ya escritos en el JSON deben ser coherentes con él. Si se omite, el editor toma el número principal del punto de derivación y comienza en el siguiente.
+### 4.3. Reglas de la cátedra
 
-### 4.3. Claridad y consistencia
+- Usá primitivas oficiales: en Actor (`Iniciar CU`, `Ingresar`, `Seleccionar`, `Confirmar`, `Elegir`) y en Sistema (`Buscar`, `Leer`, `Seleccionar`, `Mostrar mensaje`, `Crear`, `Modificar`, `Comprobar`, `Controlar consistencia`, `Por cada`, `Mientras`, `SI/SINO/FINSI`, `OrdenarPor`, `Invocar servicio`, `Definir pseudoentidad`, `Guardar Cambios`, `Ir a paso`, `Ir a CU`, `Fin CU`).
+- `Buscar` consulta persistencia; `Leer` navega desde una instancia en memoria **solo si existe navegabilidad en esa dirección en el Diagrama de Clases**.
+- Todo `Crear`/`Modificar` sobre entidades del DC requiere un `Guardar Cambios` posterior. Todo Camino Alternativo cierra con `Ir a paso` o `Fin CU`.
 
-Describí pasos en presente, con sujetos claros, acciones verificables y resultado observable. Diferenciá precondiciones de validaciones realizadas durante el flujo. Cada alternativa debe aclarar si vuelve a un paso existente o si termina el caso. Si mencionás «volver al paso 2», ese paso debe existir en la tabla correspondiente.
-
-No agregues espacios para simular columnas: el editor y la exportación forman las tablas. Usá saltos de línea solo para estructurar el contenido; las celdas se ajustan al texto. Mantené numeración, referencias, nombres de clases y operaciones consistentes con los artefactos vinculados.
+*(Nota: la app también importa archivos JSON v1 antiguos y los migra automáticamente al formato v2 sin pérdida de datos.)*
 
 ### 4.4. Ejemplo completo e importable
 
@@ -816,56 +824,154 @@ No agregues espacios para simular columnas: el editor y la exportación forman l
   "type": "use-case-flow",
   "name": "CU 1 · Registrar pedido",
   "content": {
+    "version": 2,
     "description": {
-      "useCaseNumber": "CU 1",
+      "useCaseNumber": "1",
       "useCaseName": "Registrar pedido",
       "actor": "Comprador",
-      "description": "El comprador registra un pedido; se confirma si sus datos son válidos o se cancela si son inválidos.",
+      "description": "El comprador registra un nuevo pedido seleccionando productos y confirmando la operación.",
       "priority": "A",
-      "inputParameters": "Datos del cliente y líneas del pedido.",
-      "precondition": "El cliente está identificado.",
-      "postcondition": "El pedido queda confirmado o cancelado.",
-      "initialState": "• Cliente identificado\n• Datos del pedido disponibles",
-      "finalState": "• Pedido confirmado, o pedido cancelado con errores informados"
+      "inputParameters": [
+        { "id": "ip-email", "name": "pEmailCliente" },
+        { "id": "ip-confirmar", "name": "pConfirmar", "options": ["Sí", "No"] }
+      ],
+      "precondition": "Cliente instanciado (CU Loguear Usuario)",
+      "initialState": [
+        {
+          "id": "is-cliente",
+          "kind": "instance",
+          "multiplicity": "single",
+          "className": "Cliente",
+          "qualifier": "existente",
+          "details": [
+            { "id": "is-c-email", "kind": "attribute", "attribute": "email", "comparator": "igual a", "value": "pEmailCliente" }
+          ]
+        }
+      ],
+      "finalState": [
+        {
+          "id": "fs-pedido",
+          "kind": "instance",
+          "multiplicity": "single",
+          "className": "Pedido",
+          "qualifier": "creada",
+          "details": [
+            { "id": "fs-p-fecha", "kind": "attribute", "attribute": "fecha", "comparator": "igual a", "value": "fecha actual" },
+            { "id": "fs-p-estado", "kind": "attribute", "attribute": "estado", "comparator": "igual a", "value": "'CONFIRMADO'" }
+          ]
+        }
+      ]
     },
     "basicFlow": [
       {
         "id": "paso-1",
-        "actor": "1. El Comprador solicita registrar un pedido.",
-        "system": "",
-        "ref": ""
+        "speaker": "actor",
+        "primitive": "iniciar-cu",
+        "title": "Iniciar CU",
+        "refs": [{ "id": "r-gui1", "kind": "gui", "label": "GUI-1" }],
+        "children": []
       },
       {
         "id": "paso-2",
-        "actor": "",
-        "system": "2. El sistema crea una instancia de Pedido y valida sus datos. [CA 1]",
-        "ref": ""
+        "speaker": "system",
+        "title": "Validar cliente y preparar pedido",
+        "refs": [],
+        "children": [
+          {
+            "id": "paso-2-1",
+            "kind": "action",
+            "primitive": "buscar",
+            "text": "Buscar instancia de Cliente con:",
+            "semantic": { "targetClass": "Cliente" },
+            "details": [
+              { "id": "d-email", "text": "Con email igual a pEmailCliente" }
+            ],
+            "refs": [{ "id": "r-ca1", "kind": "ca", "flowId": "alternativo-1" }]
+          },
+          {
+            "id": "paso-2-2",
+            "kind": "action",
+            "primitive": "mostrar-mensaje",
+            "text": "Mostrar mensaje “Confirme el registro del pedido”",
+            "details": [],
+            "refs": []
+          }
+        ]
       },
       {
         "id": "paso-3",
-        "actor": "3. El Comprador confirma el pedido.",
-        "system": "",
-        "ref": ""
+        "speaker": "actor",
+        "primitive": "confirmar",
+        "title": "Confirmar pedido (pConfirmar)",
+        "refs": [],
+        "children": []
       },
       {
         "id": "paso-4",
-        "actor": "",
-        "system": "4. El sistema confirma el pedido y presenta su número.",
-        "ref": ""
+        "speaker": "system",
+        "title": "Registrar pedido confirmado",
+        "refs": [],
+        "children": [
+          {
+            "id": "paso-4-1",
+            "kind": "action",
+            "primitive": "crear",
+            "text": "Crear instancia de Pedido:",
+            "semantic": { "targetClass": "Pedido" },
+            "details": [
+              { "id": "d-fecha", "text": "Con fecha igual a fecha_actual()" },
+              { "id": "d-estado", "text": "Con estado igual a 'CONFIRMADO'" }
+            ],
+            "refs": []
+          }
+        ]
+      },
+      {
+        "id": "paso-5",
+        "speaker": "system",
+        "primitive": "guardar-cambios",
+        "title": "Guardar Cambios",
+        "refs": [],
+        "children": []
+      },
+      {
+        "id": "paso-6",
+        "speaker": "system",
+        "primitive": "fin-cu",
+        "title": "Fin CU",
+        "refs": [],
+        "children": []
       }
     ],
     "alternativeFlows": [
       {
         "id": "alternativo-1",
-        "code": "CA 1",
-        "name": "Datos del pedido inválidos",
-        "firstStepNumber": 3,
+        "number": 1,
+        "title": "No existe el cliente indicado",
         "steps": [
           {
             "id": "ca1-paso-3",
-            "actor": "",
-            "system": "3. El sistema cancela el pedido, comunica los errores y termina el caso de uso.",
-            "ref": ""
+            "speaker": "system",
+            "title": "Informar cliente inexistente",
+            "refs": [],
+            "children": [
+              {
+                "id": "ca1-3-1",
+                "kind": "action",
+                "primitive": "mostrar-mensaje",
+                "text": "Mostrar mensaje “El cliente ingresado no existe”",
+                "details": [],
+                "refs": []
+              }
+            ]
+          },
+          {
+            "id": "ca1-paso-4",
+            "speaker": "system",
+            "primitive": "fin-cu",
+            "title": "Fin CU",
+            "refs": [],
+            "children": []
           }
         ]
       }

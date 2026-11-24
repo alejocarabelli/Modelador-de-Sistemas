@@ -14,15 +14,12 @@ import type {
   DesignArtifact,
   DiagramProject,
   LegacyDiagramProject,
+  LegacyUseCaseFlowContent,
   ParametricValue,
   SequenceDiagramArtifact,
-  AlternativeUseCaseFlow,
   UseCaseEdgeData,
   UseCaseFlowArtifact,
   UseCaseFlowContent,
-  UseCaseFlowDescription,
-  UseCaseFlowPriority,
-  UseCaseFlowStep,
   UseCaseModelArtifact,
   UseCaseModelContent,
   UseCaseModelEdge,
@@ -33,6 +30,7 @@ import { createId } from './id';
 import { normalizeArtifactNotebook } from './artifactNotebook';
 import { normalizeSequenceDiagramContent } from './sequenceDiagram';
 import { normalizeProjectFiles } from './projectFiles';
+import { normalizeAnyUseCaseFlowContent } from './useCaseFlowModel';
 
 const DEFAULT_CLASS_ARTIFACT_ID = 'default-class-diagram';
 
@@ -233,62 +231,9 @@ export const normalizeUseCaseModelContent = (
   };
 };
 
-const normalizeUseCaseFlowPriority = (value: unknown): UseCaseFlowPriority =>
-  value === 'B' || value === 'C' ? value : 'A';
-
-const normalizeUseCaseFlowDescription = (
-  description: Partial<UseCaseFlowDescription> | undefined,
-): UseCaseFlowDescription => ({
-  useCaseNumber: normalizeString(description?.useCaseNumber),
-  useCaseName: normalizeString(description?.useCaseName),
-  actor: normalizeString(description?.actor),
-  description: normalizeString(description?.description),
-  priority: normalizeUseCaseFlowPriority(description?.priority),
-  inputParameters: normalizeString(description?.inputParameters),
-  precondition: normalizeString(description?.precondition),
-  postcondition: normalizeString(description?.postcondition),
-  initialState: normalizeString(description?.initialState),
-  finalState: normalizeString(description?.finalState),
-});
-
-export const normalizeUseCaseFlowStep = (step: Partial<UseCaseFlowStep> | undefined): UseCaseFlowStep => ({
-  id: typeof step?.id === 'string' && step.id.length > 0 ? step.id : createId(),
-  actor: normalizeString(step?.actor),
-  system: normalizeString(step?.system),
-  ref: normalizeString(step?.ref),
-});
-
 export const normalizeUseCaseFlowContent = (
-  content: Partial<UseCaseFlowContent> | undefined,
-): UseCaseFlowContent => {
-  const basicFlow = Array.isArray(content?.basicFlow)
-    ? (content.basicFlow as Partial<UseCaseFlowStep>[]).map(normalizeUseCaseFlowStep)
-    : [];
-  const alternativeFlows = Array.isArray(content?.alternativeFlows)
-    ? (content.alternativeFlows as Partial<AlternativeUseCaseFlow>[]).map((flow, index) => ({
-        id: typeof flow?.id === 'string' && flow.id.length > 0 ? flow.id : createId(),
-        code: normalizeString(flow?.code) || `CA ${index + 1}`,
-        name: normalizeString(flow?.name),
-        ...(typeof flow?.firstStepNumber === 'number' && Number.isInteger(flow.firstStepNumber) && flow.firstStepNumber > 0
-          ? { firstStepNumber: flow.firstStepNumber }
-          : {}),
-        steps: ensureUniqueIds(
-          Array.isArray(flow?.steps)
-            ? (flow.steps as Partial<UseCaseFlowStep>[]).map(normalizeUseCaseFlowStep)
-            : [],
-        ),
-      }))
-    : [];
-
-  return {
-    classDiagramArtifactId: content?.classDiagramArtifactId === null
-      ? null
-      : normalizeString(content?.classDiagramArtifactId) || undefined,
-    description: normalizeUseCaseFlowDescription(content?.description),
-    basicFlow: ensureUniqueIds(basicFlow),
-    alternativeFlows: ensureUniqueIds(alternativeFlows),
-  };
-};
+  content: Partial<UseCaseFlowContent> | Partial<LegacyUseCaseFlowContent> | undefined,
+): UseCaseFlowContent => normalizeAnyUseCaseFlowContent(content);
 
 // The key is only present when there are notes, so old projects serialize as before.
 const withNotebook = (notebook: unknown): { notebook?: ArtifactNotebook } => {

@@ -4,91 +4,83 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
-  type MouseEvent,
 } from 'react';
 import {
+  BookOpen,
   ChevronDown,
-  Download,
-  Eye,
-  FileType,
-  Split,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  ClipboardCopy,
+  Download,
+  Eye,
   FileText,
-  Plus,
+  FileType,
+  SlidersHorizontal,
+  Split,
   Trash2,
 } from 'lucide-react';
 import type {
   AlternativeUseCaseFlow,
   ClassDiagramArtifact,
   DiagramProject,
+  FlowMainStep,
+  StepAnchorRef,
   UseCaseFlowArtifact,
   UseCaseFlowContent,
-  UseCaseFlowDescription,
   UseCaseFlowPriority,
-  UseCaseFlowStep,
+  UseCaseModelArtifact,
 } from '../types/diagram';
 import type { DiagramTheme } from '../theme/themes';
+import {
+  DEFAULT_FLOW_EXPORT_OPTIONS,
+  type FlowExportOptions,
+} from '../types/useCaseFlowEditor';
 import { createId } from '../utils/id';
 import { normalizeUseCaseFlowContent } from '../utils/diagramNormalization';
 import { buildProjectSymbolIndex } from '../utils/projectSymbolIndex';
-import { normalizeUseCaseFlowContentNumbering } from '../utils/useCaseFlowNumbering';
 import {
-  appendLineRef,
   buildFlowDocument,
   buildFlowVocabulary,
-  createStepLine,
-  findFlowBranch,
-  findPseudoEntities,
-  flattenFlowRows,
-  getDefaultFirstStepNumber,
-  getFirstStepNumber,
-  getTurnSwitchLevel,
-  normalizeFlowCode,
-  parseFlowText,
-  rememberStepLines,
-  restoreLostStepMarker,
+  renderFlowPlainText,
 } from '../utils/flowDocument';
+import {
+  computeFlowNumbering,
+  createAlternativeFlow,
+  extractPseudoEntities,
+  formatAlternativeRef,
+  getNextAlternativeNumber,
+  mapSubNodes,
+  parseStateTextToBlocks,
+} from '../utils/useCaseFlowModel';
 import { reviewUseCaseFlow, type FlowIssue } from '../utils/useCaseFlowReview';
 import { createFlowDocx } from '../utils/flowExportDocx';
 import { downloadBlob } from '../utils/pdfExport';
 import type { SaveOutcome } from '../utils/saveFile';
-import { EditorToolbar, MenuItem, NotebookButton, ReviewButton, ToolButton, ToolMenu } from './ui/Toolbar';
-import { isNotebookEvent } from '../utils/notebookKeyboard';
 import { useArtifactScrollMemory } from '../hooks/useArtifactViewMemory';
 import { artifactViewKey, readArtifactScrollView } from '../utils/artifactViewMemory';
+import { isNotebookEvent } from '../utils/notebookKeyboard';
+import { shortcutLabel } from '../utils/shortcutLabel';
+import type { DiagramSaveStatus } from '../hooks/useProjects';
+import {
+  EditorToolbar,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  NotebookButton,
+  ReviewButton,
+  ToolButton,
+  ToolMenu,
+} from './ui/Toolbar';
 import { ToolbarHistory } from './ToolbarHistory';
 import { DiagramReviewPanel } from './DiagramReviewPanel';
-import { FlowRichTextarea } from './FlowRichTextarea';
-import type { DiagramSaveStatus } from '../hooks/useProjects';
-import type { StepField, FlowTextField, CompletionSuggestion } from '../types/useCaseFlowEditor';
-import {
-  unique,
-  matchesPrefix,
-  buildFlowUsageIndex,
-  buildFlowSuggestions,
-  buildStateSuggestions,
-  type FlowCompletionContext,
-  type FlowCompletionTable,
-} from '../utils/useCaseFlowCompletion';
-import {
-  getLineInfo,
-  getMarkerLength,
-  normalizeStateBulletShortcut,
-  insertStateBulletLine,
-  changeStateBulletLevel,
-  removeOrPromoteStateBullet,
-  insertLineAfterCurrent,
-  changeLineLevel,
-  insertFlowBulletLine,
-  removeOrPromoteFlowMarker,
-  ensureStepMarker,
-} from '../utils/useCaseFlowText';
-import { setCaretAfterRender, setCaretPositionAfterRender, setStateBulletCaretAfterRender } from '../utils/textCaret';
 import { AutoGrowTextarea } from './AutoGrowTextarea';
-import { shortcutLabel } from '../utils/shortcutLabel';
+import { InputParametersEditor } from './useCaseFlow/InputParametersEditor';
+import { StateTreeEditor } from './useCaseFlow/StateTreeEditor';
+import { FlowStepsTable } from './useCaseFlow/FlowStepsTable';
+import { ClassDiagramSidePanel } from './useCaseFlow/ClassDiagramSidePanel';
+import { FlowDocumentPreview } from './useCaseFlow/FlowDocumentPreview';
+import { FlowExportDialog } from './useCaseFlow/FlowExportDialog';
 
 type UseCaseFlowEditorProps = {
   artifact: UseCaseFlowArtifact;
@@ -102,144 +94,7 @@ type UseCaseFlowEditorProps = {
   onUndo: () => void;
 };
 
-type DescriptionField = keyof UseCaseFlowDescription;
-
-type FlowTableId = 'basic' | `alternative:${string}`;
-
-type StateDescriptionField = Extract<DescriptionField, 'initialState' | 'finalState'>;
-
-type FocusTarget = {
-  field: FlowTextField;
-  /** Selects this whole line once focused (used to show where an issue is). */
-  lineIndex?: number;
-  stepId: string;
-  tableId: FlowTableId;
-};
-
-type FlowTableActions = {
-  addRow: (afterIndex?: number, focusField?: StepField) => void;
-  deleteRow: (stepId: string) => void;
-  moveRow: (index: number, direction: -1 | 1) => void;
-  updateRow: (stepId: string, field: StepField, value: string) => void;
-};
-
-type CompletionState =
-  | {
-      activeIndex: number;
-      field: FlowTextField;
-      kind: 'flow';
-      caretPosition: number;
-      stepId: string;
-      suggestions: CompletionSuggestion[];
-      tableId: FlowTableId;
-      value: string;
-    }
-  | {
-      activeIndex: number;
-      kind: 'ref';
-      stepId: string;
-      suggestions: string[];
-      tableId: FlowTableId;
-    }
-  | {
-      activeIndex: number;
-      field: StateDescriptionField;
-      kind: 'state';
-      suggestions: CompletionSuggestion[];
-    };
-
 const PRIORITIES: UseCaseFlowPriority[] = ['A', 'B', 'C'];
-
-/** Rows longer than this fold with «Plegar pasos largos». */
-const LONG_ROW_LINES = 10;
-
-const createEmptyStep = (): UseCaseFlowStep => ({
-  id: createId(),
-  actor: '',
-  system: '',
-  ref: '',
-});
-
-const createAlternativeFlow = (code: string): AlternativeUseCaseFlow => ({
-  id: createId(),
-  code,
-  name: '',
-  steps: [{ ...createEmptyStep(), system: '1. ' }],
-});
-
-const moveItem = <Item,>(items: Item[], index: number, direction: -1 | 1): Item[] => {
-  const targetIndex = index + direction;
-
-  if (targetIndex < 0 || targetIndex >= items.length) {
-    return items;
-  }
-
-  const nextItems = [...items];
-  const item = nextItems[index];
-  nextItems[index] = nextItems[targetIndex];
-  nextItems[targetIndex] = item;
-  return nextItems;
-};
-
-const getNextAlternativeCode = (flows: AlternativeUseCaseFlow[]): string => {
-  const usedNumbers = new Set(
-    flows
-      .map((flow) => /(\d+)\s*$/.exec(flow.code.trim())?.[1])
-      .filter((value): value is string => value !== undefined)
-      .map(Number),
-  );
-
-  let nextNumber = 1;
-  while (usedNumbers.has(nextNumber)) {
-    nextNumber += 1;
-  }
-
-  return `CA ${nextNumber}`;
-};
-
-const getCellKey = (tableId: FlowTableId, stepId: string, field: FlowTextField): string =>
-  `${tableId}:${stepId}:${field}`;
-
-const flowIdOf = (tableId: FlowTableId): string => tableId.replace('alternative:', '');
-
-const selectLine = (element: HTMLTextAreaElement, lineIndex: number): void => {
-  const lines = element.value.split('\n');
-  const start = lines.slice(0, lineIndex).reduce((total, line) => total + line.length + 1, 0);
-  element.setSelectionRange(start, start + (lines[lineIndex]?.length ?? 0));
-};
-
-const countLines = (value: string): number => (value.trim().length === 0 ? 0 : value.split('\n').length);
-
-function CompletionMenu({
-  activeIndex,
-  className = '',
-  suggestions,
-  onPick,
-}: {
-  activeIndex: number;
-  className?: string;
-  suggestions: CompletionSuggestion[];
-  onPick: (index: number) => void;
-}) {
-  return (
-    <div className={`flow-completion-menu ${className}`} role="listbox">
-      {suggestions.map((suggestion, index) => (
-        <button
-          aria-selected={index === activeIndex}
-          className={index === activeIndex ? 'active' : undefined}
-          key={suggestion.id}
-          role="option"
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onPick(index)}
-        >
-          <span>{suggestion.label}</span>
-          {suggestion.detail !== undefined ? <small>{suggestion.detail}</small> : null}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export function UseCaseFlowEditor({
   artifact,
@@ -257,30 +112,39 @@ export function UseCaseFlowEditor({
   const viewKey = artifactViewKey(project.id, artifact.id);
   const [initialView] = useState(() => readArtifactScrollView(viewKey));
   useArtifactScrollMemory(viewKey, scrollRef, initialView);
+
   const feedbackTimeoutRef = useRef<number | null>(null);
-  const cellRefs = useRef(new Map<string, HTMLTextAreaElement>());
-  const caretPositions = useRef(new Map<string, number>());
-  // Per step cell, the last text whose first line was numbered, while focused: a blur restores the number if edits removed it.
-  const lastStepTexts = useRef(new Map<string, string>());
-  const stateFieldRefs = useRef(new Map<StateDescriptionField, HTMLTextAreaElement>());
-  const alternativeNameRefs = useRef(new Map<string, HTMLInputElement>());
-  const foldSummaryRefs = useRef(new Map<string, HTMLButtonElement>());
+  const highlightTimeoutRef = useRef<number | null>(null);
+  const fieldRefs = useRef(new Map<string, HTMLTextAreaElement>());
+  const altTitleRefs = useRef(new Map<string, HTMLInputElement>());
+  const activeInsertRef = useRef<((token: string) => void) | null>(null);
+
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [focusedCell, setFocusedCell] = useState<FocusTarget | null>(null);
-  const [focusedStateField, setFocusedStateField] = useState<StateDescriptionField | null>(null);
-  const [pendingFocus, setPendingFocus] = useState<FocusTarget | null>(null);
-  const [pendingNameFocus, setPendingNameFocus] = useState<string | null>(null);
-  const [collapsedAlternativeIds, setCollapsedAlternativeIds] = useState<Set<string>>(() => new Set());
-  const [collapsedRowIds, setCollapsedRowIds] = useState<Set<string>>(() => new Set());
-  const [completionState, setCompletionState] = useState<CompletionState | null>(null);
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null);
+  const [pendingAltFocusId, setPendingAltFocusId] = useState<string | null>(null);
+
+  // Collapsible sections (UI state, outside undo history)
+  const [showDescription, setShowDescription] = useState(true);
+  const [showBasicFlow, setShowBasicFlow] = useState(true);
+  const [showAlternatives, setShowAlternatives] = useState(true);
+  const [previewMode, setPreviewMode] = useState(false);
+
+  const [collapsedAltIds, setCollapsedAltIds] = useState<Set<string>>(() => new Set());
+  const [collapsedStepIds, setCollapsedStepIds] = useState<Set<string>>(() => new Set());
+
+  // Right side panel: only one open at a time ('none' | 'review' | 'class-diagram')
+  const [sidePanel, setSidePanel] = useState<'none' | 'review' | 'class-diagram'>('none');
+  const [exportDialogFormat, setExportDialogFormat] = useState<'pdf' | 'docx' | null>(null);
+
   const classDiagramArtifacts = useMemo(
     () =>
       project.artifacts.filter(
-        (currentArtifact): currentArtifact is ClassDiagramArtifact => currentArtifact.type === 'class-diagram',
+        (candidate): candidate is ClassDiagramArtifact => candidate.type === 'class-diagram',
       ),
     [project.artifacts],
   );
+
   // Only a flow that never chose a diagram (undefined) takes the project's single one. null is an explicit
   // "Sin referencia", and a stored id that no longer exists is reported, never replaced by another diagram.
   const associatedClassDiagramId =
@@ -290,879 +154,349 @@ export function UseCaseFlowEditor({
         : undefined
       : content.classDiagramArtifactId ?? undefined;
   const associatedClassDiagram = classDiagramArtifacts.find(
-    (classDiagramArtifact) => classDiagramArtifact.id === associatedClassDiagramId,
+    (candidate) => candidate.id === associatedClassDiagramId,
   );
+
   const symbolIndex = useMemo(() => buildProjectSymbolIndex(associatedClassDiagram), [associatedClassDiagram]);
-  const flowUsageIndex = useMemo(() => buildFlowUsageIndex(content), [content]);
-  const pseudoEntities = useMemo(
-    () =>
-      findPseudoEntities([
-        ...content.basicFlow.flatMap((row) => [row.actor, row.system]),
-        ...content.alternativeFlows.flatMap((flow) => flow.steps.flatMap((row) => [row.actor, row.system])),
-      ]),
-    [content.alternativeFlows, content.basicFlow],
-  );
-  const pseudoEntityNames = useMemo(() => pseudoEntities.map((entity) => entity.name).join('\n'), [pseudoEntities]);
+  const pseudoEntities = useMemo(() => extractPseudoEntities(content), [content]);
   const vocabulary = useMemo(
-    () => buildFlowVocabulary(symbolIndex, pseudoEntityNames.length === 0 ? [] : pseudoEntityNames.split('\n')),
-    [pseudoEntityNames, symbolIndex],
+    () =>
+      buildFlowVocabulary(
+        symbolIndex,
+        pseudoEntities.map((pe) => pe.name),
+        pseudoEntities.flatMap((pe) => pe.fields),
+      ),
+    [pseudoEntities, symbolIndex],
   );
-  const completionTables = useMemo<FlowCompletionTable[]>(() => {
-    const toSteps = (rows: UseCaseFlowStep[]) =>
-      flattenFlowRows(rows).flatMap((line) => (line.number === undefined ? [] : [{ number: line.number, text: line.body.trim() }]));
-    return [
-      { code: 'basic', qualifier: 'del camino básico', steps: toSteps(content.basicFlow) },
-      ...content.alternativeFlows.map((flow) => ({
-        code: normalizeFlowCode(flow.code),
-        qualifier: `de ${normalizeFlowCode(flow.code)}`,
-        steps: toSteps(flow.steps),
-      })),
-    ];
-  }, [content.alternativeFlows, content.basicFlow]);
-  const reviewIssues = useMemo(() => reviewUseCaseFlow(content, symbolIndex), [content, symbolIndex]);
-  const refSuggestions = unique([
-    ...content.alternativeFlows.map((flow) => flow.code).filter((code) => code.trim().length > 0),
-    ...flowUsageIndex.refs,
-  ]);
-  const basicStepCount = completionTables[0].steps.filter((step) => !step.number.includes('.')).length;
 
-  const showFeedback = (message: string): void => {
-    setFeedbackMessage(message);
-
-    if (feedbackTimeoutRef.current !== null) {
-      window.clearTimeout(feedbackTimeoutRef.current);
-    }
-
-    feedbackTimeoutRef.current = window.setTimeout(() => setFeedbackMessage(null), 2200);
-  };
-
-  const commitContent = useCallback((nextContent: UseCaseFlowContent): void => {
-    const normalized = normalizeUseCaseFlowContent(nextContent);
-    if (JSON.stringify(normalized) === JSON.stringify(content)) return;
-    onChangeContent(normalized);
-  }, [content, onChangeContent]);
-
-  const commitNumberedContent = useCallback((nextContent: UseCaseFlowContent): void => {
-    commitContent(normalizeUseCaseFlowContentNumbering(nextContent));
-  }, [commitContent]);
-
-  const updateDescription = (field: DescriptionField, value: string): void => {
-    commitContent({
-      ...content,
-      description: {
-        ...content.description,
-        [field]: field === 'priority' ? (value as UseCaseFlowPriority) : value,
-      },
+  const { actorSuggestions, useCaseNames } = useMemo(() => {
+    const actors = new Set<string>();
+    const useCases = new Set<string>();
+    project.artifacts.forEach((candidate) => {
+      if (candidate.type === 'use-case-model') {
+        const model = candidate as UseCaseModelArtifact;
+        model.content.nodes.forEach((node) => {
+          const name = node.data?.name?.trim();
+          if (!name) return;
+          if (node.data.kind === 'actor') actors.add(name);
+          else if (node.data.kind === 'use-case') useCases.add(name);
+        });
+      } else if (candidate.type === 'use-case-flow' && candidate.id !== artifact.id) {
+        const normalized = normalizeUseCaseFlowContent(candidate.content);
+        if (normalized.description.useCaseName.trim()) useCases.add(normalized.description.useCaseName.trim());
+        if (normalized.description.actor.trim()) actors.add(normalized.description.actor.trim());
+      }
     });
-  };
+    return {
+      actorSuggestions: Array.from(actors),
+      useCaseNames: Array.from(useCases),
+    };
+  }, [artifact.id, project.artifacts]);
 
-  // -------------------------------------------------------------------------
-  // Initial and final state.
+  const numbering = useMemo(() => computeFlowNumbering(content), [content]);
+  const reviewIssues = useMemo(() => reviewUseCaseFlow(content, symbolIndex), [content, symbolIndex]);
+  const errorCount = useMemo(() => reviewIssues.filter((issue) => issue.kind === 'error').length, [reviewIssues]);
 
-  const openStateCompletion = (field: StateDescriptionField, value: string, position: number): void => {
-    const suggestions = buildStateSuggestions(value, position, symbolIndex);
-    setCompletionState((current) =>
-      suggestions.length > 0
-        ? { kind: 'state', field, suggestions, activeIndex: 0 }
-        : current?.kind === 'state' && current.field === field ? null : current,
-    );
-  };
+  const previewDocument = useMemo(
+    () =>
+      previewMode
+        ? buildFlowDocument(content, artifact.name, symbolIndex, {
+            includeDescription: showDescription,
+            includeBasicFlow: showBasicFlow,
+            includeAlternatives: showAlternatives,
+          })
+        : null,
+    [artifact.name, content, previewMode, showAlternatives, showBasicFlow, showDescription, symbolIndex],
+  );
 
-  const applyStateCompletion = (textarea: HTMLTextAreaElement, field: StateDescriptionField, index?: number): boolean => {
-    if (completionState?.kind !== 'state' || completionState.field !== field) {
-      return false;
-    }
+  const showFeedback = useCallback((message: string): void => {
+    setFeedbackMessage(message);
+    if (feedbackTimeoutRef.current !== null) window.clearTimeout(feedbackTimeoutRef.current);
+    feedbackTimeoutRef.current = window.setTimeout(() => setFeedbackMessage(null), 2400);
+  }, []);
 
-    const suggestion = completionState.suggestions[index ?? completionState.activeIndex];
-    if (suggestion === undefined) {
-      return false;
-    }
+  const flashHighlight = useCallback((id: string): void => {
+    setHighlightedId(id);
+    if (highlightTimeoutRef.current !== null) window.clearTimeout(highlightTimeoutRef.current);
+    highlightTimeoutRef.current = window.setTimeout(() => setHighlightedId(null), 2000);
+  }, []);
 
-    const insertion = suggestion.apply(textarea.value, textarea.selectionStart);
-    updateDescription(field, insertion.value);
-    setCompletionState(null);
-    setCaretPositionAfterRender(textarea, insertion.caretPosition);
-    window.requestAnimationFrame(() => openStateCompletion(field, insertion.value, insertion.caretPosition));
-    return true;
-  };
+  const commitContent = useCallback(
+    (next: UseCaseFlowContent): void => {
+      const normalized = normalizeUseCaseFlowContent(next);
+      if (JSON.stringify(normalized) === JSON.stringify(content)) return;
+      onChangeContent(normalized);
+    },
+    [content, onChangeContent],
+  );
 
-  const handleStateFieldKeyDown = (
-    event: KeyboardEvent<HTMLTextAreaElement>,
-    field: StateDescriptionField,
-  ): void => {
-    const textarea = event.currentTarget;
-
-    if (completionState?.kind === 'state' && completionState.field === field) {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        moveCompletionSelection(event.key === 'ArrowDown' ? 1 : -1);
-        return;
-      }
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setCompletionState(null);
-        return;
-      }
-
-      if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey && applyStateCompletion(textarea, field)) {
-        event.preventDefault();
-        return;
-      }
-    }
-
-    if (event.key === 'Backspace') {
-      const result = removeOrPromoteStateBullet(textarea.value, textarea.selectionStart);
-
-      if (result !== null) {
-        event.preventDefault();
-        updateDescription(field, result.value);
-        setStateBulletCaretAfterRender(textarea, result.lineIndex, result.markerLength, result.value);
-      }
-
-      return;
-    }
-
-    if (event.key === 'Tab') {
-      const result = changeStateBulletLevel(textarea.value, textarea.selectionStart, event.shiftKey ? -1 : 1);
-
-      if (result !== null) {
-        event.preventDefault();
-        updateDescription(field, result.value);
-        setStateBulletCaretAfterRender(textarea, result.lineIndex, result.markerLength, result.value);
-      }
-
-      return;
-    }
-
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      const result = insertStateBulletLine(textarea.value, textarea.selectionStart);
-      updateDescription(field, result.value);
-      setStateBulletCaretAfterRender(textarea, result.lineIndex, result.markerLength, result.value);
-    }
-  };
-
-  const handleStateFieldChange = (
-    field: StateDescriptionField,
-    textarea: HTMLTextAreaElement,
-  ): void => {
-    const normalized = normalizeStateBulletShortcut(textarea.value, textarea.selectionStart);
-
-    if (normalized === null) {
-      updateDescription(field, textarea.value);
-      openStateCompletion(field, textarea.value, textarea.selectionStart);
-      return;
-    }
-
-    updateDescription(field, normalized.value);
-    setCaretPositionAfterRender(textarea, normalized.caretPosition, normalized.value);
-    openStateCompletion(field, normalized.value, normalized.caretPosition);
-  };
-
-  const applyStateFieldAction = (
-    field: StateDescriptionField,
-    action: 'bullet' | 'clear' | 'indent' | 'outdent',
-  ): void => {
-    const textarea = stateFieldRefs.current.get(field);
-
-    if (textarea === undefined) {
-      return;
-    }
-
-    const result =
-      action === 'bullet'
-        ? insertStateBulletLine(textarea.value, textarea.selectionStart)
-        : action === 'indent'
-          ? changeStateBulletLevel(textarea.value, textarea.selectionStart, 1)
-          : action === 'outdent'
-            ? changeStateBulletLevel(textarea.value, textarea.selectionStart, -1)
-            : removeOrPromoteStateBullet(textarea.value, textarea.selectionStart);
-
-    if (result === null) {
-      return;
-    }
-
-    updateDescription(field, result.value);
-    setStateBulletCaretAfterRender(textarea, result.lineIndex, result.markerLength, result.value);
-  };
+  const updateDescription = useCallback(
+    (patch: Partial<UseCaseFlowContent['description']>): void => {
+      commitContent({
+        ...content,
+        description: { ...content.description, ...patch },
+      });
+    },
+    [commitContent, content],
+  );
 
   const updateAssociatedClassDiagram = (artifactId: string): void => {
     commitContent({
       ...content,
-      // "Sin referencia" is stored as null: undefined would pick the only class diagram again.
       classDiagramArtifactId: artifactId.length > 0 ? artifactId : null,
     });
   };
 
+  const registerFieldRef = useCallback((key: string, el: HTMLTextAreaElement | null): void => {
+    if (el === null) fieldRefs.current.delete(key);
+    else fieldRefs.current.set(key, el);
+  }, []);
+
+  const handleFocusEditable = useCallback((_el: HTMLTextAreaElement, applyInsert: (token: string) => void): void => {
+    activeInsertRef.current = applyInsert;
+  }, []);
+
+  const handleInsertTokenFromPanel = useCallback(
+    (token: string): void => {
+      if (activeInsertRef.current) {
+        activeInsertRef.current(token);
+      } else {
+        void navigator.clipboard?.writeText(token);
+        showFeedback(`«${token}» copiado al portapapeles`);
+      }
+    },
+    [showFeedback],
+  );
+
   // -------------------------------------------------------------------------
-  // Rows.
-
-  const getFlowRows = useCallback((tableId: FlowTableId): UseCaseFlowStep[] => {
-    if (tableId === 'basic') {
-      return content.basicFlow;
-    }
-
-    return content.alternativeFlows.find((flow) => flow.id === flowIdOf(tableId))?.steps ?? [];
-  }, [content.alternativeFlows, content.basicFlow]);
-
-  const withRows = useCallback((
-    source: UseCaseFlowContent,
-    tableId: FlowTableId,
-    update: (rows: UseCaseFlowStep[]) => UseCaseFlowStep[],
-  ): UseCaseFlowContent =>
-    tableId === 'basic'
-      ? { ...source, basicFlow: update(source.basicFlow) }
-      : {
-          ...source,
-          alternativeFlows: source.alternativeFlows.map((flow) =>
-            flow.id === flowIdOf(tableId) ? { ...flow, steps: update(flow.steps) } : flow,
-          ),
-        }, []);
-
-  const insertRow = (tableId: FlowTableId, afterIndex: number | undefined, step: UseCaseFlowStep, focusField?: FlowTextField): void => {
-    commitNumberedContent(withRows(content, tableId, (rows) => {
-      const nextRows = [...rows];
-      nextRows.splice(afterIndex === undefined ? nextRows.length : afterIndex + 1, 0, step);
-      return nextRows;
-    }));
-
-    if (focusField !== undefined) {
-      setPendingFocus({ tableId, stepId: step.id, field: focusField });
-    }
-  };
-
-  const addRowForTable = (tableId: FlowTableId, afterIndex?: number, focusField: StepField = 'actor'): void => {
-    insertRow(tableId, afterIndex, createEmptyStep(), focusField === 'ref' ? undefined : focusField);
-  };
-
-  const updateFlowCell = useCallback((
-    tableId: FlowTableId,
-    stepId: string,
-    field: StepField,
-    value: string,
-    normalizeNumbering = false,
-  ): void => {
-    const nextContent = withRows(content, tableId, (rows) =>
-      rows.map((step) => (step.id === stepId ? { ...step, [field]: value } : step)));
-    (normalizeNumbering ? commitNumberedContent : commitContent)(nextContent);
-  }, [commitContent, commitNumberedContent, content, withRows]);
-
-  const deleteRow = (tableId: FlowTableId, stepId: string): void => {
-    commitNumberedContent(withRows(content, tableId, (rows) => rows.filter((step) => step.id !== stepId)));
-  };
-
-  const moveRow = (tableId: FlowTableId, index: number, direction: -1 | 1): void => {
-    commitNumberedContent(withRows(content, tableId, (rows) => moveItem(rows, index, direction)));
-  };
+  // Alternative flows management
 
   const addAlternativeFlow = (): void => {
-    const nextFlow = createAlternativeFlow(getNextAlternativeCode(content.alternativeFlows));
-    commitNumberedContent({
+    const num = getNextAlternativeNumber(content.alternativeFlows);
+    const created = createAlternativeFlow(num);
+    commitContent({
       ...content,
-      alternativeFlows: [...content.alternativeFlows, nextFlow],
+      alternativeFlows: [...content.alternativeFlows, created],
     });
-    setCollapsedAlternativeIds((currentIds) => {
-      const nextIds = new Set(currentIds);
-      nextIds.delete(nextFlow.id);
-      return nextIds;
+    setShowAlternatives(true);
+    setCollapsedAltIds((current) => {
+      const next = new Set(current);
+      next.delete(created.id);
+      return next;
     });
-    setPendingNameFocus(nextFlow.id);
+    setPendingAltFocusId(created.id);
   };
 
-  const deleteAlternativeFlow = (flowId: string): void => {
-    commitNumberedContent({
-      ...content,
-      alternativeFlows: content.alternativeFlows.filter((flow) => flow.id !== flowId),
-    });
-  };
+  const createAlternativeFromStep = useCallback(
+    (sourceFlowId: 'basic' | string, targetStepId: string, isMainStep: boolean): void => {
+      const num = getNextAlternativeNumber(content.alternativeFlows);
+      const created = createAlternativeFlow(num);
+      const refItem = { id: createId(), kind: 'ca' as const, flowId: created.id };
+
+      const attachToSteps = (steps: FlowMainStep[]): FlowMainStep[] =>
+        steps.map((step) => {
+          if (isMainStep && step.id === targetStepId) {
+            return { ...step, refs: [...step.refs, refItem] };
+          }
+          if (!isMainStep) {
+            return {
+              ...step,
+              children: mapSubNodes(step.children, (node) =>
+                node.id === targetStepId ? { ...node, refs: [...node.refs, refItem] } : node,
+              ),
+            };
+          }
+          return step;
+        });
+
+      const nextBasic = sourceFlowId === 'basic' ? attachToSteps(content.basicFlow) : content.basicFlow;
+      const nextAlts = content.alternativeFlows.map((alt) =>
+        alt.id === sourceFlowId ? { ...alt, steps: attachToSteps(alt.steps) } : alt,
+      );
+
+      commitContent({
+        ...content,
+        basicFlow: nextBasic,
+        alternativeFlows: [...nextAlts, created],
+      });
+      setShowAlternatives(true);
+      setCollapsedAltIds((current) => {
+        const next = new Set(current);
+        next.delete(created.id);
+        return next;
+      });
+      setPendingAltFocusId(created.id);
+      showFeedback(`${formatAlternativeRef(num)} creado y vinculado en Ref.`);
+    },
+    [commitContent, content, showFeedback],
+  );
 
   const updateAlternativeFlow = (
     flowId: string,
-    values: Partial<Pick<AlternativeUseCaseFlow, 'code' | 'name' | 'firstStepNumber'>>,
-    normalizeNumbering = false,
+    patch: Partial<Pick<AlternativeUseCaseFlow, 'number' | 'title' | 'firstStepNumberOverride' | 'steps'>>,
   ): void => {
-    const nextContent = {
+    commitContent({
       ...content,
-      alternativeFlows: content.alternativeFlows.map((flow) => {
-        if (flow.id !== flowId) return flow;
-        const next = { ...flow, ...values };
-        if ('firstStepNumber' in values && values.firstStepNumber === undefined) delete next.firstStepNumber;
+      alternativeFlows: content.alternativeFlows.map((alt) => {
+        if (alt.id !== flowId) return alt;
+        const next = { ...alt, ...patch };
+        if ('firstStepNumberOverride' in patch && patch.firstStepNumberOverride === undefined) {
+          delete next.firstStepNumberOverride;
+        }
         return next;
       }),
-    };
-    (normalizeNumbering ? commitNumberedContent : commitContent)(nextContent);
-  };
-
-  /** The cell as it will be stored and drawn once renumbered, and the marker length of one of its lines. */
-  const getNormalizedCell = useCallback((
-    tableId: FlowTableId,
-    stepId: string,
-    field: FlowTextField,
-    value: string,
-    lineIndex: number,
-  ): { markerLength: number; value: string } => {
-    const normalized = normalizeUseCaseFlowContentNumbering(withRows(content, tableId, (rows) =>
-      rows.map((step) => (step.id === stepId ? { ...step, [field]: value } : step))));
-    const rows = tableId === 'basic'
-      ? normalized.basicFlow
-      : normalized.alternativeFlows.find((flow) => flow.id === flowIdOf(tableId))?.steps ?? [];
-    const normalizedValue = rows.find((step) => step.id === stepId)?.[field] ?? '';
-    const normalizedLine = normalizedValue.split('\n')[lineIndex] ?? '';
-    return { markerLength: getMarkerLength(normalizedLine), value: normalizedValue };
-  }, [content, withRows]);
-
-  // -------------------------------------------------------------------------
-  // Turns, paths and folding.
-
-  /** ⌘↵: the other side answers in a new row, numbered by the block rule. */
-  const switchTurn = (
-    tableId: FlowTableId,
-    rowIndex: number,
-    step: UseCaseFlowStep,
-    field: FlowTextField,
-    textarea: HTMLTextAreaElement,
-    invert: boolean,
-  ): void => {
-    const { lineIndex } = getLineInfo(textarea.value, textarea.selectionStart);
-    const rows = getFlowRows(tableId).map((row) => (row.id === step.id ? { ...row, [field]: textarea.value } : row));
-    const level = getTurnSwitchLevel(rows, step.id, field, lineIndex, invert);
-    const otherField: FlowTextField = field === 'actor' ? 'system' : 'actor';
-    insertRow(tableId, rowIndex, { ...createEmptyStep(), [otherField]: createStepLine(level) }, otherField);
-  };
-
-  /** ⌘⇧A: a new alternative path that branches from the current line. */
-  const createAlternativeFromLine = (
-    tableId: FlowTableId,
-    step: UseCaseFlowStep,
-    field: FlowTextField,
-    textarea: HTMLTextAreaElement,
-  ): void => {
-    const { lineIndex } = getLineInfo(textarea.value, textarea.selectionStart);
-    const code = getNextAlternativeCode(content.alternativeFlows);
-    const flow = createAlternativeFlow(code);
-    const withRef = withRows(content, tableId, (rows) =>
-      rows.map((row) => (row.id === step.id ? { ...row, [field]: appendLineRef(textarea.value, lineIndex, code) } : row)));
-    commitNumberedContent({ ...withRef, alternativeFlows: [...withRef.alternativeFlows, flow] });
-    setPendingNameFocus(flow.id);
-    showFeedback(`${code} creado desde esta línea`);
-  };
-
-  const setRowCollapsed = (stepId: string, collapsed: boolean): void => {
-    setCollapsedRowIds((current) => {
-      const next = new Set(current);
-      if (collapsed) next.add(stepId);
-      else next.delete(stepId);
-      return next;
     });
   };
 
-  const expandRow = (tableId: FlowTableId, step: UseCaseFlowStep, field: FlowTextField): void => {
-    setRowCollapsed(step.id, false);
-    setPendingFocus({ tableId, stepId: step.id, field: step[field].trim().length > 0 ? field : field === 'actor' ? 'system' : 'actor' });
+  const moveAlternativeFlow = (index: number, direction: -1 | 1): void => {
+    const target = index + direction;
+    if (target < 0 || target >= content.alternativeFlows.length) return;
+    const next = [...content.alternativeFlows];
+    const [item] = next.splice(index, 1);
+    next.splice(target, 0, item);
+    commitContent({ ...content, alternativeFlows: next });
   };
 
-  const foldLongRows = (): void => {
-    const rows = [...content.basicFlow, ...content.alternativeFlows.flatMap((flow) => flow.steps)];
-    const long = rows.filter((row) => countLines(row.actor) + countLines(row.system) > LONG_ROW_LINES);
-    setCollapsedRowIds(new Set(long.map((row) => row.id)));
-    showFeedback(long.length === 0 ? 'No hay pasos largos para plegar' : `${long.length} ${long.length === 1 ? 'paso plegado' : 'pasos plegados'}`);
+  const deleteAlternativeFlow = (flow: AlternativeUseCaseFlow): void => {
+    commitContent({
+      ...content,
+      alternativeFlows: content.alternativeFlows.filter((alt) => alt.id !== flow.id),
+    });
+    showFeedback(`${formatAlternativeRef(flow.number)} eliminado (podés deshacer)`);
   };
 
-  const locateStep = (tableCode: string, number: string): FocusTarget | null => {
-    const tableId: FlowTableId | undefined = tableCode === 'basic'
-      ? 'basic'
-      : (() => {
-          const flow = content.alternativeFlows.find((candidate) => normalizeFlowCode(candidate.code) === tableCode);
-          return flow === undefined ? undefined : `alternative:${flow.id}` as const;
-        })();
+  // -------------------------------------------------------------------------
+  // Navigation & focus helpers
 
-    if (tableId === undefined) {
-      return null;
-    }
-
-    const line = flattenFlowRows(getFlowRows(tableId)).find((candidate) => candidate.number === number);
-    return line === undefined ? null : { tableId, stepId: line.stepId, field: line.field, lineIndex: line.lineIndex };
-  };
-
-  const revealAlternative = (flowId: string): void => {
-    setCollapsedAlternativeIds((current) => {
+  const jumpToAlternative = useCallback((flowId: string): void => {
+    setShowAlternatives(true);
+    setPreviewMode(false);
+    setCollapsedAltIds((current) => {
       const next = new Set(current);
       next.delete(flowId);
       return next;
     });
-    setPendingNameFocus(flowId);
-  };
+    setPendingAltFocusId(flowId);
+    flashHighlight(flowId);
+  }, [flashHighlight]);
 
-  const revealCell = (target: FocusTarget): void => {
-    setRowCollapsed(target.stepId, false);
-    if (target.tableId !== 'basic') {
-      setCollapsedAlternativeIds((current) => {
+  const jumpToStep = useCallback((anchor: StepAnchorRef): void => {
+    setPreviewMode(false);
+    if (anchor.flowId === 'basic') {
+      setShowBasicFlow(true);
+    } else {
+      setShowAlternatives(true);
+      setCollapsedAltIds((current) => {
         const next = new Set(current);
-        next.delete(flowIdOf(target.tableId));
+        next.delete(anchor.flowId);
         return next;
       });
     }
-    setPendingFocus(target);
-  };
-
-  /** ⌘-click on `(paso 3.2)`, `paso 8 del camino básico` or `[CA 2]` follows it. */
-  const followReference = (event: MouseEvent<HTMLTextAreaElement>, tableId: FlowTableId): void => {
-    if (!event.metaKey && !event.ctrlKey) {
-      return;
+    const entry = numbering.entries.find((e) => e.stepId === anchor.stepId);
+    if (entry) {
+      setCollapsedStepIds((current) => {
+        const next = new Set(current);
+        next.delete(entry.mainStepId);
+        return next;
+      });
+      setPendingFocusKey(entry.isMain ? `main:${entry.stepId}` : `sub:${entry.stepId}`);
+      flashHighlight(entry.stepId);
     }
-
-    const textarea = event.currentTarget;
-    const { lineColumn, lineIndex, lines } = getLineInfo(textarea.value, textarea.selectionStart);
-    const line = lines[lineIndex] ?? '';
-    const currentTable = tableId === 'basic'
-      ? 'basic'
-      : normalizeFlowCode(content.alternativeFlows.find((flow) => flow.id === flowIdOf(tableId))?.code ?? '');
-    const pattern =
-      /\[(C\.?\s?A\.?\s*(?:N°\s*)?\d+)\]|\bpasos?\s+(?:N°\s*)?\[?(\d+(?:\.\d+)*)\]?(?:\s+(?:del?|de\s+la)\s+\[?(camino\s+b[aá]sico|C\.?\s?A\.?\s*(?:N°\s*)?\d+|camino\s+altern[oa]\s*(?:N°\s*)?\d+)\]?)?/gi;
-
-    for (const match of line.matchAll(pattern)) {
-      const start = match.index ?? 0;
-      if (lineColumn < start || lineColumn > start + match[0].length) {
-        continue;
-      }
-
-      event.preventDefault();
-      if (match[1] !== undefined) {
-        const flow = content.alternativeFlows.find((candidate) => normalizeFlowCode(candidate.code) === normalizeFlowCode(match[1]));
-        if (flow === undefined) showFeedback(`${normalizeFlowCode(match[1])} todavía no existe`);
-        else revealAlternative(flow.id);
-        return;
-      }
-
-      const target = match[3] === undefined ? currentTable : /b[aá]sico/i.test(match[3]) ? 'basic' : normalizeFlowCode(match[3]);
-      const located = locateStep(target, match[2]);
-      if (located === null) showFeedback(`No existe el paso ${match[2]}`);
-      else revealCell(located);
-      return;
-    }
-  };
+  }, [flashHighlight, numbering.entries]);
 
   const focusIssue = (issue: FlowIssue): void => {
-    const location = issue.location;
-    if (location === undefined) return;
-
-    if (location.kind === 'alternative') {
-      revealAlternative(location.table);
-    } else if (location.kind === 'state') {
-      const textarea = stateFieldRefs.current.get(location.field);
-      if (textarea !== undefined) {
-        textarea.focus();
-        selectLine(textarea, location.lineIndex);
-        textarea.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      }
-    } else {
-      revealCell({
-        tableId: location.table === 'basic' ? 'basic' : `alternative:${location.table}`,
-        stepId: location.stepId,
-        field: location.field,
-        lineIndex: location.lineIndex,
-      });
+    const loc = issue.location;
+    if (!loc) return;
+    setPreviewMode(false);
+    if (loc.kind === 'alternative') {
+      jumpToAlternative(loc.flowId);
+    } else if (loc.kind === 'step') {
+      jumpToStep({ flowId: loc.flowId, stepId: loc.stepId });
+    } else if (loc.kind === 'state') {
+      setShowDescription(true);
+      flashHighlight(loc.detailId ?? loc.blockId);
+      document.getElementById('ucf-descripcion')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (loc.kind === 'description') {
+      setShowDescription(true);
+      document.getElementById('ucf-descripcion')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+  };
+
+  const toggleCollapseStep = useCallback((stepId: string): void => {
+    setCollapsedStepIds((current) => {
+      const next = new Set(current);
+      if (next.has(stepId)) next.delete(stepId);
+      else next.add(stepId);
+      return next;
+    });
+  }, []);
+
+  const foldLongSteps = (): void => {
+    const allMain = [...content.basicFlow, ...content.alternativeFlows.flatMap((a) => a.steps)];
+    const longIds = allMain.filter((s) => s.children.length >= 4).map((s) => s.id);
+    setCollapsedStepIds(new Set(longIds));
+    showFeedback(longIds.length === 0 ? 'No hay pasos largos para plegar' : `${longIds.length} pasos plegados`);
   };
 
   // -------------------------------------------------------------------------
-  // Completion.
+  // Export & clipboard
 
-  const getCompletionContext = (tableId: FlowTableId, stepId: string, field: FlowTextField): FlowCompletionContext => {
-    const rows = getFlowRows(tableId);
-    const rowIndex = rows.findIndex((row) => row.id === stepId);
-    const precedingText = [
-      ...rows.slice(0, Math.max(0, rowIndex)).flatMap((row) => [row.actor, row.system]),
-      ...(field === 'system' && rowIndex >= 0 ? [rows[rowIndex].actor] : []),
-    ].join('\n');
-    const currentTable = tableId === 'basic'
-      ? 'basic'
-      : normalizeFlowCode(content.alternativeFlows.find((flow) => flow.id === flowIdOf(tableId))?.code ?? '');
-    return { tables: completionTables, currentTable, precedingText, pseudoEntities };
-  };
+  const fileBaseName =
+    (content.description.useCaseName.trim() || artifact.name).replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'caso-de-uso';
 
-  const openFlowCompletion = (
-    tableId: FlowTableId,
-    stepId: string,
-    field: FlowTextField,
-    value: string,
-    position: number,
-  ): void => {
-    const suggestions = buildFlowSuggestions(
-      field,
-      value,
-      position,
-      symbolIndex,
-      flowUsageIndex,
-      getCompletionContext(tableId, stepId, field),
-    );
-
-    if (suggestions.length === 0) {
-      setCompletionState((currentState) =>
-        currentState?.kind === 'flow' &&
-        currentState.tableId === tableId &&
-        currentState.stepId === stepId &&
-        currentState.field === field
-          ? null
-          : currentState,
-      );
-      return;
-    }
-
-    setCompletionState({
-      kind: 'flow',
-      tableId,
-      stepId,
-      field,
-      value,
-      caretPosition: position,
-      suggestions,
-      activeIndex: 0,
-    });
-  };
-
-  const applyFlowSuggestion = (
-    textarea: HTMLTextAreaElement,
-    tableId: FlowTableId,
-    stepId: string,
-    field: FlowTextField,
-    suggestion: CompletionSuggestion,
-  ): void => {
-    const insertion = suggestion.apply(textarea.value, textarea.selectionStart);
-    updateFlowCell(tableId, stepId, field, insertion.value, suggestion.normalizeNumbering === true);
-    setCompletionState(null);
-    setCaretPositionAfterRender(textarea, insertion.caretPosition);
-    // A completed class opens its attributes, a completed attribute its values.
-    window.requestAnimationFrame(() => openFlowCompletion(tableId, stepId, field, textarea.value, textarea.selectionStart));
-  };
-
-  const applyFlowCompletion = (
-    textarea: HTMLTextAreaElement,
-    tableId: FlowTableId,
-    stepId: string,
-    field: FlowTextField,
-  ): boolean => {
-    if (
-      completionState === null ||
-      completionState.kind !== 'flow' ||
-      completionState.tableId !== tableId ||
-      completionState.stepId !== stepId ||
-      completionState.field !== field
-    ) {
-      return false;
-    }
-
-    const suggestion = completionState.suggestions[completionState.activeIndex];
-
-    if (suggestion === undefined) {
-      return false;
-    }
-
-    applyFlowSuggestion(textarea, tableId, stepId, field, suggestion);
-    return true;
-  };
-
-  const openRefCompletion = (tableId: FlowTableId, stepId: string, value: string): void => {
-    const suggestions = refSuggestions.filter((suggestion) => value.length === 0 || matchesPrefix(suggestion, value));
-
-    if (suggestions.length === 0) {
-      setCompletionState((currentState) =>
-        currentState?.kind === 'ref' && currentState.tableId === tableId && currentState.stepId === stepId
-          ? null
-          : currentState,
-      );
-      return;
-    }
-
-    setCompletionState({ kind: 'ref', tableId, stepId, suggestions, activeIndex: 0 });
-  };
-
-  const applyRefCompletion = (
-    input: HTMLInputElement,
-    tableId: FlowTableId,
-    stepId: string,
-    actions: FlowTableActions,
-  ): boolean => {
-    if (
-      completionState === null ||
-      completionState.kind !== 'ref' ||
-      completionState.tableId !== tableId ||
-      completionState.stepId !== stepId
-    ) {
-      return false;
-    }
-
-    const suggestion = completionState.suggestions[completionState.activeIndex];
-
-    if (suggestion === undefined) {
-      return false;
-    }
-
-    actions.updateRow(stepId, 'ref', suggestion);
-    setCompletionState(null);
-    setCaretPositionAfterRender(input, suggestion.length);
-    return true;
-  };
-
-  const moveCompletionSelection = (direction: -1 | 1): void => {
-    setCompletionState((currentState) => {
-      if (currentState === null || currentState.suggestions.length === 0) {
-        return currentState;
-      }
-
-      return {
-        ...currentState,
-        activeIndex:
-          (currentState.activeIndex + direction + currentState.suggestions.length) %
-          currentState.suggestions.length,
-      } as CompletionState;
-    });
-  };
-
-  const handleFlowCellKeyDown = (
-    event: KeyboardEvent<HTMLTextAreaElement>,
-    tableId: FlowTableId,
-    step: UseCaseFlowStep,
-    field: FlowTextField,
-    rowIndex: number,
-  ): void => {
-    const textarea = event.currentTarget;
-    const value = textarea.value;
-    const cellKey = getCellKey(tableId, step.id, field);
-    const command = event.metaKey || event.ctrlKey;
-
-    if (
-      completionState?.kind === 'flow' &&
-      completionState.tableId === tableId &&
-      completionState.stepId === step.id &&
-      completionState.field === field &&
-      !command
-    ) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        moveCompletionSelection(1);
-        return;
-      }
-
-      if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        moveCompletionSelection(-1);
-        return;
-      }
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setCompletionState(null);
-        return;
-      }
-
-      if ((event.key === 'Tab' && !event.shiftKey) || (event.key === 'Enter' && !event.shiftKey)) {
-        event.preventDefault();
-        if (applyFlowCompletion(textarea, tableId, step.id, field)) {
-          return;
-        }
-      }
-    }
-
-    if (command && event.key === 'Enter') {
-      event.preventDefault();
-      setCompletionState(null);
-      updateFlowCell(tableId, step.id, field, value, true);
-      switchTurn(tableId, rowIndex, step, field, textarea, event.shiftKey);
-      return;
-    }
-
-    if (command && event.key === '.') {
-      event.preventDefault();
-      setRowCollapsed(step.id, true);
-      window.requestAnimationFrame(() => foldSummaryRefs.current.get(`${step.id}:${field}`)?.focus());
-      return;
-    }
-
-    if (command && event.shiftKey && event.key.toLowerCase() === 'a') {
-      event.preventDefault();
-      setCompletionState(null);
-      createAlternativeFromLine(tableId, step, field, textarea);
-      return;
-    }
-
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      const result = changeLineLevel(value, textarea.selectionStart, event.shiftKey ? -1 : 1);
-      const normalized = getNormalizedCell(tableId, step.id, field, result.value, result.lineIndex);
-      updateFlowCell(tableId, step.id, field, result.value, true);
-      caretPositions.current.set(cellKey, textarea.selectionStart);
-      // The caret keeps its place in the text (usually its end), so typing goes on after what was written.
-      const oldLineEnd = value.indexOf('\n', textarea.selectionStart);
-      const fromLineEnd = (oldLineEnd === -1 ? value.length : oldLineEnd) - textarea.selectionStart;
-      const newLines = normalized.value.split('\n');
-      const newLineEnd = newLines.slice(0, result.lineIndex + 1).reduce((total, line) => total + line.length + 1, 0) - 1;
-      const newLineStart = newLineEnd - (newLines[result.lineIndex]?.length ?? 0);
-      setCaretPositionAfterRender(textarea, Math.max(newLineStart + normalized.markerLength, newLineEnd - fromLineEnd), normalized.value);
-      return;
-    }
-
-    if (event.key === 'Backspace') {
-      const result = removeOrPromoteFlowMarker(value, textarea.selectionStart);
-
-      if (result !== null) {
-        event.preventDefault();
-        const normalized = getNormalizedCell(tableId, step.id, field, result.value, result.lineIndex);
-        updateFlowCell(tableId, step.id, field, result.value, true);
-        setCaretAfterRender(textarea, result.lineIndex, normalized.markerLength, normalized.value);
-      }
-
-      return;
-    }
-
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      const result = insertLineAfterCurrent(ensureStepMarker(value), textarea.selectionStart);
-      const normalized = getNormalizedCell(tableId, step.id, field, result.value, result.lineIndex);
-      updateFlowCell(tableId, step.id, field, result.value, true);
-      setCaretAfterRender(textarea, result.lineIndex, normalized.markerLength, normalized.value);
-      return;
-    }
-  };
-
-  const handleRefKeyDown = (
-    event: KeyboardEvent<HTMLInputElement>,
-    tableId: FlowTableId,
-    stepId: string,
-    actions: FlowTableActions,
-  ): void => {
-    if (
-      completionState?.kind === 'ref' &&
-      completionState.tableId === tableId &&
-      completionState.stepId === stepId
-    ) {
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        moveCompletionSelection(1);
-        return;
-      }
-
-      if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        moveCompletionSelection(-1);
-        return;
-      }
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setCompletionState(null);
-        return;
-      }
-
-      if (event.key === 'Tab' || event.key === 'Enter') {
-        event.preventDefault();
-        applyRefCompletion(event.currentTarget, tableId, stepId, actions);
-      }
-    }
-  };
-
-  const applyFocusedCellAction = (
-    tableId: FlowTableId,
-    action: 'bullet' | 'indent' | 'outdent' | 'step' | 'substep',
-  ): void => {
-    if (focusedCell === null || focusedCell.tableId !== tableId) {
-      addRowForTable(tableId);
-      return;
-    }
-
-    const cellKey = getCellKey(focusedCell.tableId, focusedCell.stepId, focusedCell.field);
-    const textarea = cellRefs.current.get(cellKey);
-
-    if (textarea === undefined) {
-      addRowForTable(tableId);
-      return;
-    }
-
-    const caretPosition = caretPositions.current.get(cellKey) ?? textarea.selectionStart;
-    const result =
-      action === 'bullet'
-        ? insertFlowBulletLine(textarea.value, caretPosition)
-        : action === 'indent'
-          ? changeLineLevel(textarea.value, caretPosition, 1)
-          : action === 'outdent'
-            ? changeLineLevel(textarea.value, caretPosition, -1)
-            : insertLineAfterCurrent(ensureStepMarker(textarea.value), caretPosition, action === 'substep');
-    const normalized = getNormalizedCell(
-      focusedCell.tableId,
-      focusedCell.stepId,
-      focusedCell.field,
-      result.value,
-      result.lineIndex,
-    );
-    updateFlowCell(focusedCell.tableId, focusedCell.stepId, focusedCell.field, result.value, true);
-    setCaretAfterRender(textarea, result.lineIndex, normalized.markerLength, normalized.value);
-  };
-
-  const toggleAlternativeCollapsed = (flowId: string): void => {
-    setCollapsedAlternativeIds((currentIds) => {
-      const nextIds = new Set(currentIds);
-
-      if (nextIds.has(flowId)) {
-        nextIds.delete(flowId);
-      } else {
-        nextIds.add(flowId);
-      }
-
-      return nextIds;
-    });
-  };
-
-  // -------------------------------------------------------------------------
-  // Files.
-
-  const fileBaseName = (content.description.useCaseName.trim() || artifact.name).replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'caso de uso';
-
-  const exportDocument = async (format: 'pdf' | 'docx'): Promise<void> => {
-    const document = buildFlowDocument(content, artifact.name, symbolIndex);
-
+  const runExport = async (format: 'pdf' | 'docx', options: FlowExportOptions): Promise<void> => {
+    const doc = buildFlowDocument(content, artifact.name, symbolIndex, options);
     try {
       let outcome: SaveOutcome;
       if (format === 'docx') {
-        outcome = await downloadBlob(`${fileBaseName}.docx`, createFlowDocx(document));
+        outcome = await downloadBlob(`${fileBaseName}.docx`, createFlowDocx(doc, { orientation: options.orientation }));
       } else {
         const { createFlowPdf } = await import('../utils/flowExportPdf');
-        outcome = await downloadBlob(`${fileBaseName}.pdf`, createFlowPdf(document));
+        outcome = await downloadBlob(`${fileBaseName}.pdf`, createFlowPdf(doc, { orientation: options.orientation }));
       }
       if (outcome.status === 'cancelled') return;
       if (outcome.status === 'failed') throw new Error(outcome.error);
-      showFeedback(format === 'pdf' ? 'PDF exportado' : 'Documento de Word exportado');
+      showFeedback(format === 'pdf' ? 'PDF exportado' : 'Documento Word (.docx) exportado');
     } catch {
       showFeedback('No se pudo exportar el documento. Probá de nuevo.');
     }
   };
 
+  const copyPlainSummary = async (): Promise<void> => {
+    const doc = buildFlowDocument(content, artifact.name, symbolIndex, {
+      includeDescription: showDescription,
+      includeBasicFlow: showBasicFlow,
+      includeAlternatives: showAlternatives,
+    });
+    try {
+      await navigator.clipboard.writeText(renderFlowPlainText(doc));
+      showFeedback('Resumen de texto copiado al portapapeles');
+    } catch {
+      showFeedback('No se pudo copiar al portapapeles.');
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Effects: toolbar menus, focus, cleanup
+
   const closeToolbarMenus = (except?: HTMLDetailsElement): void => {
     toolbarRef.current?.querySelectorAll<HTMLDetailsElement>('details.toolbar-menu').forEach((details) => {
-      if (details !== except) {
-        details.removeAttribute('open');
-      }
+      if (details !== except) details.removeAttribute('open');
     });
   };
 
   useEffect(() => {
     const closeOnOutsideClick = (event: globalThis.MouseEvent): void => {
-      if (toolbarRef.current?.contains(event.target as Node)) {
-        return;
-      }
-
+      if (toolbarRef.current?.contains(event.target as Node)) return;
       closeToolbarMenus();
     };
-
     const closeOnEscape = (event: globalThis.KeyboardEvent): void => {
       if (event.key === 'Escape' && !isNotebookEvent(event)) {
         closeToolbarMenus();
       }
     };
-
     document.addEventListener('mousedown', closeOnOutsideClick, true);
     document.addEventListener('keydown', closeOnEscape);
-
     return () => {
       document.removeEventListener('mousedown', closeOnOutsideClick, true);
       document.removeEventListener('keydown', closeOnEscape);
@@ -1171,713 +505,693 @@ export function UseCaseFlowEditor({
 
   useEffect(
     () => () => {
-      if (feedbackTimeoutRef.current !== null) {
-        window.clearTimeout(feedbackTimeoutRef.current);
-      }
+      if (feedbackTimeoutRef.current !== null) window.clearTimeout(feedbackTimeoutRef.current);
+      if (highlightTimeoutRef.current !== null) window.clearTimeout(highlightTimeoutRef.current);
     },
     [],
   );
 
   useEffect(() => {
-    if (pendingFocus === null) {
-      return;
-    }
-
-    const cellKey = getCellKey(pendingFocus.tableId, pendingFocus.stepId, pendingFocus.field);
-    const textarea = cellRefs.current.get(cellKey);
-
-    if (textarea === undefined) {
-      return;
-    }
-
-    textarea.focus();
-    if (pendingFocus.lineIndex !== undefined) {
-      selectLine(textarea, pendingFocus.lineIndex);
-      textarea.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    } else if (textarea.value.trim().length === 0) {
-      const { markerLength } = getNormalizedCell(
-        pendingFocus.tableId,
-        pendingFocus.stepId,
-        pendingFocus.field,
-        '1. ',
-        0,
-      );
-      updateFlowCell(pendingFocus.tableId, pendingFocus.stepId, pendingFocus.field, '1. ', true);
-      window.requestAnimationFrame(() => textarea.setSelectionRange(markerLength, markerLength));
-    } else {
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-      textarea.scrollIntoView({ block: 'nearest' });
-    }
-    setPendingFocus(null);
-  }, [content, getNormalizedCell, pendingFocus, updateFlowCell]);
+    if (!pendingFocusKey) return;
+    const el = fieldRefs.current.get(pendingFocusKey);
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    setPendingFocusKey(null);
+  }, [content, pendingFocusKey]);
 
   useEffect(() => {
-    if (pendingNameFocus === null) {
-      return;
-    }
-
-    const input = alternativeNameRefs.current.get(pendingNameFocus);
-    if (input === undefined) {
-      return;
-    }
-
+    if (!pendingAltFocusId) return;
+    const input = altTitleRefs.current.get(pendingAltFocusId);
+    if (!input) return;
     input.focus();
     input.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setPendingNameFocus(null);
-  }, [content, pendingNameFocus]);
+    setPendingAltFocusId(null);
+  }, [content, pendingAltFocusId]);
 
-  // -------------------------------------------------------------------------
-  // Rendering.
-
-  const renderFlowCompletion = (tableId: FlowTableId, stepId: string, field: FlowTextField) => {
-    if (
-      completionState === null ||
-      completionState.kind !== 'flow' ||
-      completionState.tableId !== tableId ||
-      completionState.stepId !== stepId ||
-      completionState.field !== field
-    ) {
-      return null;
-    }
-
-    const suggestions = completionState.suggestions;
-    return (
-      <CompletionMenu
-        activeIndex={completionState.activeIndex}
-        suggestions={suggestions}
-        onPick={(index) => {
-          const textarea = cellRefs.current.get(getCellKey(tableId, stepId, field));
-          if (textarea !== undefined) {
-            applyFlowSuggestion(textarea, tableId, stepId, field, suggestions[index]);
-          }
-        }}
-      />
-    );
-  };
-
-  const renderStateCompletion = (field: StateDescriptionField) => {
-    if (completionState?.kind !== 'state' || completionState.field !== field) {
-      return null;
-    }
-
-    return (
-      <CompletionMenu
-        activeIndex={completionState.activeIndex}
-        className="flow-state-completion-menu"
-        suggestions={completionState.suggestions}
-        onPick={(index) => {
-          const textarea = stateFieldRefs.current.get(field);
-          if (textarea !== undefined) {
-            applyStateCompletion(textarea, field, index);
-          }
-        }}
-      />
-    );
-  };
-
-  const renderRefCompletion = (tableId: FlowTableId, stepId: string, actions: FlowTableActions) => {
-    if (
-      completionState === null ||
-      completionState.kind !== 'ref' ||
-      completionState.tableId !== tableId ||
-      completionState.stepId !== stepId
-    ) {
-      return null;
-    }
-
-    return (
-      <div className="flow-completion-menu flow-ref-completion-menu">
-        {completionState.suggestions.map((suggestion, index) => (
-          <button
-            className={index === completionState.activeIndex ? 'active' : undefined}
-            key={suggestion}
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              actions.updateRow(stepId, 'ref', suggestion);
-              setCompletionState(null);
-            }}
-          >
-            <span>{suggestion}</span>
-          </button>
-        ))}
-      </div>
-    );
-  };
-
-  const renderFoldSummary = (tableId: FlowTableId, step: UseCaseFlowStep, field: FlowTextField) => {
-    const value = step[field];
-    if (value.trim().length === 0) {
-      return <div className="flow-fold-empty" />;
-    }
-
-    const lines = parseFlowText(value);
-    const first = lines.find((line) => line.body.trim().length > 0) ?? lines[0];
-    const hidden = lines.length - 1;
-
-    return (
-      <button
-        className="flow-fold-summary"
-        ref={(element) => {
-          const key = `${step.id}:${field}`;
-          if (element === null) foldSummaryRefs.current.delete(key);
-          else foldSummaryRefs.current.set(key, element);
-        }}
-        type="button"
-        title={shortcutLabel('Desplegar (⌘.)')}
-        onClick={() => expandRow(tableId, step, field)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === '.') {
-            event.preventDefault();
-            expandRow(tableId, step, field);
-          }
-        }}
-      >
-        <ChevronRight aria-hidden="true" size={13} />
-        <span className="flow-fold-number">{first.number !== undefined ? `${first.number}.` : ''}</span>
-        <span className="flow-fold-text">{first.body.trim()}</span>
-        {hidden > 0 ? <span className="flow-fold-count">{hidden} {hidden === 1 ? 'línea' : 'líneas'} más</span> : null}
-      </button>
-    );
-  };
-
-  /** Keeps the numbered lines of a cell, until it loses focus. */
-  const rememberStepText = (cellKey: string, text: string): void => {
-    const remembered = rememberStepLines(lastStepTexts.current.get(cellKey), text);
-    if (remembered !== undefined) lastStepTexts.current.set(cellKey, remembered);
-  };
-
-  const renderFlowCell = (
-    tableId: FlowTableId,
-    step: UseCaseFlowStep,
-    field: FlowTextField,
-    index: number,
-    actions: FlowTableActions,
-  ) => (
-    <>
-      <FlowRichTextarea
-        className="flow-cell-editor"
-        value={step[field]}
-        variant="flow"
-        vocabulary={vocabulary}
-        placeholder={index > 0 ? undefined : field === 'actor' ? '1. Acción del actor' : '2. Respuesta del sistema'}
-        minRows={1}
-        aria-label={`${field === 'actor' ? 'Actor' : 'Sistema'}, fila ${index + 1}`}
-        ref={(element) => {
-          const key = getCellKey(tableId, step.id, field);
-          if (element === null) {
-            cellRefs.current.delete(key);
-          } else {
-            cellRefs.current.set(key, element);
-          }
-        }}
-        onBlur={(event) => {
-          const cellKey = getCellKey(tableId, step.id, field);
-          const lastStepText = lastStepTexts.current.get(cellKey) ?? event.currentTarget.value;
-          lastStepTexts.current.delete(cellKey);
-          updateFlowCell(tableId, step.id, field, restoreLostStepMarker(lastStepText, event.currentTarget.value), true);
-          window.setTimeout(() => setCompletionState((current) => (current?.kind === 'flow' ? null : current)), 120);
-        }}
-        onChange={(event) => {
-          rememberStepText(getCellKey(tableId, step.id, field), step[field]);
-          actions.updateRow(step.id, field, event.target.value);
-          openFlowCompletion(tableId, step.id, field, event.target.value, event.target.selectionStart);
-        }}
-        onClick={(event) => followReference(event, tableId)}
-        onFocus={(event) => {
-          const cellKey = getCellKey(tableId, step.id, field);
-          lastStepTexts.current.delete(cellKey);
-          rememberStepText(cellKey, event.target.value);
-          setFocusedCell({ tableId, stepId: step.id, field });
-          openFlowCompletion(tableId, step.id, field, event.target.value, event.target.selectionStart);
-        }}
-        onKeyDown={(event) => handleFlowCellKeyDown(event, tableId, step, field, index)}
-        onSelect={(event) => {
-          caretPositions.current.set(getCellKey(tableId, step.id, field), event.currentTarget.selectionStart);
-        }}
-      />
-      {renderFlowCompletion(tableId, step.id, field)}
-    </>
+  const inputParamNames = useMemo(
+    () => content.description.inputParameters.map((p) => p.name.trim()).filter(Boolean),
+    [content.description.inputParameters],
   );
-
-  const renderFlowRows = (tableId: FlowTableId, rows: UseCaseFlowStep[], actions: FlowTableActions) => (
-    <div className="flow-table-wrap">
-      {focusedCell?.tableId === tableId ? (
-        <div className="flow-inline-toolbar">
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFocusedCellAction(tableId, 'step')}>
-            Paso
-          </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFocusedCellAction(tableId, 'substep')}>
-            Subpaso
-          </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFocusedCellAction(tableId, 'bullet')}>
-            Viñeta
-          </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFocusedCellAction(tableId, 'outdent')}>
-            Subir
-          </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyFocusedCellAction(tableId, 'indent')}>
-            Bajar
-          </button>
-          <button
-            type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              const focusedRowIndex = rows.findIndex((row) => row.id === focusedCell.stepId);
-              actions.addRow(focusedRowIndex >= 0 ? focusedRowIndex : undefined, focusedCell.field);
-            }}
-          >
-            Fila debajo
-          </button>
-          <span className="flow-inline-hint"><kbd>{shortcutLabel('⌘↵')}</kbd> turno del otro lado</span>
-        </div>
-      ) : null}
-      <table className="flow-table document-flow-table">
-        <colgroup>
-          <col className="flow-actor-column" />
-          <col className="flow-system-column" />
-          <col className="flow-ref-column" />
-          <col className="flow-actions-column" />
-        </colgroup>
-        <thead>
-          <tr>
-            <th>Actor</th>
-            <th>Sistema</th>
-            <th title="Referencia a un camino alternativo">Ref.</th>
-            <th aria-label="Acciones" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td className="flow-empty-cell" colSpan={4}>
-                <button className="secondary-action" type="button" onClick={() => actions.addRow()}>
-                  <Plus size={15} />
-                  Agregar primera fila
-                </button>
-              </td>
-            </tr>
-          ) : (
-            rows.map((step, index) => {
-              const collapsed = collapsedRowIds.has(step.id);
-              const lineCount = countLines(step.actor) + countLines(step.system);
-
-              return (
-                <tr className={`flow-editable-row${collapsed ? ' flow-row-collapsed' : ''}`} key={step.id}>
-                  <td>{collapsed ? renderFoldSummary(tableId, step, 'actor') : renderFlowCell(tableId, step, 'actor', index, actions)}</td>
-                  <td>{collapsed ? renderFoldSummary(tableId, step, 'system') : renderFlowCell(tableId, step, 'system', index, actions)}</td>
-                  <td className="flow-ref-cell">
-                    <input
-                      aria-label={`Referencia, fila ${index + 1}`}
-                      className="flow-ref-input"
-                      value={step.ref}
-                      placeholder={index === 0 ? 'ej. CA 1' : undefined}
-                      onBlur={() => window.setTimeout(() => setCompletionState((current) => (current?.kind === 'ref' ? null : current)), 120)}
-                      onChange={(event) => {
-                        actions.updateRow(step.id, 'ref', event.target.value);
-                        openRefCompletion(tableId, step.id, event.target.value);
-                      }}
-                      onFocus={(event) => openRefCompletion(tableId, step.id, event.target.value)}
-                      onKeyDown={(event) => handleRefKeyDown(event, tableId, step.id, actions)}
-                    />
-                    {renderRefCompletion(tableId, step.id, actions)}
-                  </td>
-                  <td className="flow-row-actions">
-                    <div className="flow-row-action-menu">
-                      {/* Out of the Tab order: Tab from Ref. goes to the next cell, and a space typed there must not press these. */}
-                      <button aria-label="Agregar fila debajo" tabIndex={-1} type="button" title="Agregar fila debajo" onClick={() => actions.addRow(index, 'actor')}>
-                        <Plus size={13} />
-                      </button>
-                      <button
-                        aria-label={collapsed ? 'Desplegar paso' : 'Plegar paso'}
-                        disabled={!collapsed && lineCount <= 1}
-                        tabIndex={-1}
-                        type="button"
-                        title={shortcutLabel(collapsed ? 'Desplegar (⌘.)' : 'Plegar (⌘.)')}
-                        onClick={() => setRowCollapsed(step.id, !collapsed)}
-                      >
-                        {collapsed ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
-                      </button>
-                      <button aria-label="Mover fila arriba" disabled={index === 0} tabIndex={-1} type="button" onClick={() => actions.moveRow(index, -1)} title="Mover arriba">
-                        ↑
-                      </button>
-                      <button aria-label="Mover fila abajo" disabled={index === rows.length - 1} tabIndex={-1} type="button" onClick={() => actions.moveRow(index, 1)} title="Mover abajo">
-                        ↓
-                      </button>
-                      <button aria-label="Eliminar fila" tabIndex={-1} type="button" onClick={() => actions.deleteRow(step.id)} title="Eliminar fila">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
-      {rows.length > 0 ? (
-        <button className="secondary-action flow-add-row-action" type="button" onClick={() => actions.addRow()}>
-          <Plus size={15} />
-          Agregar fila
-        </button>
-      ) : null}
-    </div>
-  );
-
-  const tableActions = (tableId: FlowTableId): FlowTableActions => ({
-    addRow: (afterIndex, focusField) => addRowForTable(tableId, afterIndex, focusField),
-    deleteRow: (stepId) => deleteRow(tableId, stepId),
-    moveRow: (index, direction) => moveRow(tableId, index, direction),
-    updateRow: (stepId, field, value) => updateFlowCell(tableId, stepId, field, value),
-  });
-
-  const renderStateField = (field: StateDescriptionField, label: string, placeholder: string) => (
-    <div className="flow-field flow-wide-field flow-state-field">
-      <label className="flow-field-label" htmlFor={`flow-${field}`}>{label}</label>
-      {focusedStateField === field ? (
-        <div className="flow-inline-toolbar state-inline-toolbar">
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyStateFieldAction(field, 'bullet')}>
-            Viñeta
-          </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyStateFieldAction(field, 'indent')}>
-            Subnivel
-          </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyStateFieldAction(field, 'outdent')}>
-            Subir nivel
-          </button>
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => applyStateFieldAction(field, 'clear')}>
-            Quitar marcador
-          </button>
-          <span className="flow-inline-hint">«Instancia de» sugiere clases y «con:» sus atributos</span>
-        </div>
-      ) : null}
-      <div className="flow-state-editor">
-        <FlowRichTextarea
-          className="state-bullet-editor"
-          id={`flow-${field}`}
-          value={content.description[field]}
-          variant="state"
-          vocabulary={vocabulary}
-          placeholder={placeholder}
-          minRows={4}
-          ref={(element) => {
-            if (element === null) {
-              stateFieldRefs.current.delete(field);
-            } else {
-              stateFieldRefs.current.set(field, element);
-            }
-          }}
-          onBlur={() => window.setTimeout(() => {
-            setFocusedStateField(null);
-            setCompletionState((current) => (current?.kind === 'state' ? null : current));
-          }, 120)}
-          onChange={(event) => handleStateFieldChange(field, event.target)}
-          onFocus={() => setFocusedStateField(field)}
-          onKeyDown={(event) => handleStateFieldKeyDown(event, field)}
-        />
-        {renderStateCompletion(field)}
-      </div>
-    </div>
-  );
-
-  const errorCount = reviewIssues.filter((issue) => issue.kind === 'error').length;
 
   return (
-    <main className="editor-shell flow-editor-shell">
+    <main className="editor-shell ucf-editor-shell">
       <EditorToolbar
         toolbarRef={toolbarRef}
-        start={(
-          <>
-            <ToolbarHistory canRedo={canRedo} canUndo={canUndo} saveStatus={saveStatus} onRedo={onRedo} onUndo={onUndo} />
-          </>
-        )}
-        create={(
+        start={
+          <ToolbarHistory canRedo={canRedo} canUndo={canUndo} saveStatus={saveStatus} onRedo={onRedo} onUndo={onUndo} />
+        }
+        create={
           <>
             <ToolButton
               icon={Split}
               label="Camino alternativo"
               showLabel
+              title={shortcutLabel('Agregar un Camino Alternativo (⇧⌘A desde un paso lo vincula directo)')}
               variant="primary"
-              title={shortcutLabel('Agregar un camino alternativo (⇧⌘A desde un paso lo abre desde esa línea)')}
               onClick={addAlternativeFlow}
             />
+            <ToolButton
+              icon={BookOpen}
+              label="Clases (DC)"
+              pressed={sidePanel === 'class-diagram'}
+              showLabel
+              title="Abrir panel de consulta del Diagrama de Clases vinculado"
+              onClick={() => setSidePanel((p) => (p === 'class-diagram' ? 'none' : 'class-diagram'))}
+            />
           </>
-        )}
-        end={(
+        }
+        end={
           <>
             <NotebookButton />
             <ReviewButton
               count={reviewIssues.length}
               hasErrors={errorCount > 0}
-              open={reviewOpen}
-              onToggle={() => setReviewOpen((open) => !open)}
+              open={sidePanel === 'review'}
+              onToggle={() => setSidePanel((p) => (p === 'review' ? 'none' : 'review'))}
             />
             <ToolMenu icon={Eye} label="Vista">
-              <MenuItem icon={ChevronsDownUp} onSelect={foldLongRows}>Plegar pasos largos</MenuItem>
-              <MenuItem icon={ChevronsUpDown} disabled={collapsedRowIds.size === 0} onSelect={() => setCollapsedRowIds(new Set())}>Desplegar todos los pasos</MenuItem>
+              <MenuItem
+                checked={previewMode}
+                icon={FileText}
+                onSelect={() => setPreviewMode((m) => !m)}
+              >
+                Vista previa de entrega
+              </MenuItem>
+              <MenuSeparator />
+              <MenuLabel>Secciones visibles</MenuLabel>
+              <MenuItem checked={showDescription} onSelect={() => setShowDescription((v) => !v)}>
+                Lista Descriptiva
+              </MenuItem>
+              <MenuItem checked={showBasicFlow} onSelect={() => setShowBasicFlow((v) => !v)}>
+                Camino Básico
+              </MenuItem>
+              <MenuItem checked={showAlternatives} onSelect={() => setShowAlternatives((v) => !v)}>
+                Caminos Alternativos
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem icon={ChevronsDownUp} onSelect={foldLongSteps}>
+                Plegar pasos largos
+              </MenuItem>
+              <MenuItem
+                disabled={collapsedStepIds.size === 0}
+                icon={ChevronsUpDown}
+                onSelect={() => setCollapsedStepIds(new Set())}
+              >
+                Desplegar todos los pasos
+              </MenuItem>
             </ToolMenu>
             <ToolMenu icon={Download} label="Exportar">
-              <MenuItem icon={FileText} onSelect={() => { void exportDocument('pdf'); }}>Documento PDF</MenuItem>
-              <MenuItem icon={FileType} onSelect={() => { void exportDocument('docx'); }}>Documento Word (.docx)</MenuItem>
+              <MenuItem icon={FileText} onSelect={() => { void runExport('pdf', DEFAULT_FLOW_EXPORT_OPTIONS); }}>
+                PDF completo (A4 vertical)
+              </MenuItem>
+              <MenuItem icon={FileType} onSelect={() => { void runExport('docx', DEFAULT_FLOW_EXPORT_OPTIONS); }}>
+                Word (.docx) completo
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem icon={SlidersHorizontal} onSelect={() => setExportDialogFormat('pdf')}>
+                Exportar con opciones (selectivo / apaisado)…
+              </MenuItem>
+              <MenuItem icon={ClipboardCopy} onSelect={() => { void copyPlainSummary(); }}>
+                Copiar texto plano
+              </MenuItem>
             </ToolMenu>
           </>
-        )}
+        }
       />
+
       {feedbackMessage !== null ? <div className="editor-feedback" role="status">{feedbackMessage}</div> : null}
 
-      <div className={`flow-editor-body${reviewOpen ? ' review-open' : ''}`}>
-        <section className="flow-document" data-editor-canvas="" ref={scrollRef} tabIndex={-1}>
-          <nav className="flow-section-nav" aria-label="Secciones de la especificación">
-            <a href="#descripcion-general">Especificación</a>
-            <a href="#camino-basico">Camino básico <span>{basicStepCount}</span></a>
-            <a href="#caminos-alternativos">Caminos alternativos <span>{content.alternativeFlows.length}</span></a>
+      <div className={`ucf-editor-body${sidePanel !== 'none' ? ' has-side-panel' : ''}`}>
+        <section className="ucf-canvas" data-editor-canvas="" ref={scrollRef} tabIndex={-1}>
+          {/* Sticky navigation & quick jump bar */}
+          <nav aria-label="Navegación del Caso de Uso" className="ucf-section-nav">
+            <a href="#ucf-descripcion" onClick={() => { setShowDescription(true); setPreviewMode(false); }}>
+              Lista Descriptiva
+            </a>
+            <a href="#ucf-basico" onClick={() => { setShowBasicFlow(true); setPreviewMode(false); }}>
+              Camino Básico <span className="ucf-nav-count">{content.basicFlow.length}</span>
+            </a>
+            <a href="#ucf-alternativos" onClick={() => { setShowAlternatives(true); setPreviewMode(false); }}>
+              Caminos Alternativos <span className="ucf-nav-count">{content.alternativeFlows.length}</span>
+            </a>
+            {content.alternativeFlows.length > 0 ? (
+              <div className="ucf-nav-ca-chips">
+                {content.alternativeFlows.map((alt) => (
+                  <button
+                    key={alt.id}
+                    title={alt.title || formatAlternativeRef(alt.number)}
+                    type="button"
+                    onClick={() => jumpToAlternative(alt.id)}
+                  >
+                    {formatAlternativeRef(alt.number)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <button
+              className={`ucf-preview-toggle${previewMode ? ' is-active' : ''}`}
+              type="button"
+              onClick={() => setPreviewMode((m) => !m)}
+            >
+              <Eye size={13} aria-hidden="true" />
+              <span>{previewMode ? 'Volver a editar' : 'Vista previa'}</span>
+            </button>
           </nav>
 
-          <section className="flow-card flow-sheet" id="descripcion-general">
-            <div className="flow-sheet-title">
-              <input
-                aria-label="Nombre del caso de uso"
-                className="flow-title-input"
-                value={content.description.useCaseName}
-                placeholder={artifact.name}
-                onChange={(event) => updateDescription('useCaseName', event.target.value)}
-              />
+          {previewMode && previewDocument ? (
+            <div className="ucf-preview-container">
+              <FlowDocumentPreview document={previewDocument} />
             </div>
-            <div className="flow-meta-row">
-              <label className="flow-field flow-field-number">
-                <span className="flow-field-label">Número</span>
-                <input
-                  inputMode="numeric"
-                  value={content.description.useCaseNumber}
-                  placeholder="ej. 3"
-                  onChange={(event) => updateDescription('useCaseNumber', event.target.value)}
-                />
-              </label>
-              <label className="flow-field flow-field-actor">
-                <span className="flow-field-label">Actor</span>
-                <input
-                  value={content.description.actor}
-                  placeholder="Actor principal"
-                  onChange={(event) => updateDescription('actor', event.target.value)}
-                />
-              </label>
-              <div className="flow-field flow-field-priority">
-                <span className="flow-field-label" id="flow-priority-label">Prioridad</span>
-                <div aria-labelledby="flow-priority-label" className="flow-priority" role="radiogroup">
-                  {PRIORITIES.map((priority) => (
-                    <button
-                      aria-checked={content.description.priority === priority}
-                      className={content.description.priority === priority ? 'active' : undefined}
-                      key={priority}
-                      role="radio"
-                      type="button"
-                      onClick={() => updateDescription('priority', priority)}
-                    >
-                      {priority}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="flow-field flow-field-diagram">
-                <span className="flow-field-label">Diagrama de clases</span>
-                <select
-                  title="Vincular el diagrama de clases permite revisar que las clases y atributos que nombrás existan."
-                  value={associatedClassDiagramId ?? ''}
-                  onChange={(event) => updateAssociatedClassDiagram(event.target.value)}
-                >
-                  <option value="">
-                    {classDiagramArtifacts.length === 0 ? 'Sin diagramas de clases' : 'Sin referencia'}
-                  </option>
-                  {classDiagramArtifacts.map((classDiagramArtifact) => (
-                    <option key={classDiagramArtifact.id} value={classDiagramArtifact.id}>
-                      {classDiagramArtifact.name}
+          ) : (
+            <div className="ucf-document-stack">
+              {/* Linked Class Diagram bar */}
+              <div className="ucf-dc-link-bar">
+                <label className="ucf-dc-select-label">
+                  <span>Diagrama de clases vinculado</span>
+                  <select
+                    title="Vincular el diagrama de clases habilita autocompletado, subrayado de clases, cursiva de atributos y validación de navegabilidad en Leer."
+                    value={associatedClassDiagramId ?? ''}
+                    onChange={(event) => updateAssociatedClassDiagram(event.target.value)}
+                  >
+                    <option value="">
+                      {classDiagramArtifacts.length === 0 ? 'Sin diagramas de clases' : 'Sin referencia'}
                     </option>
-                  ))}
-                </select>
+                    {classDiagramArtifacts.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 {typeof content.classDiagramArtifactId === 'string' && associatedClassDiagram === undefined ? (
-                  <small>La referencia guardada ya no existe.</small>
+                  <small className="ucf-dc-missing">La referencia guardada ya no existe.</small>
+                ) : associatedClassDiagram ? (
+                  <span className="ucf-dc-status">
+                    {symbolIndex.classes.length} clases disponibles ·{' '}
+                    <button
+                      className="ucf-link-btn"
+                      type="button"
+                      onClick={() => setSidePanel((p) => (p === 'class-diagram' ? 'none' : 'class-diagram'))}
+                    >
+                      {sidePanel === 'class-diagram' ? 'ocultar panel' : 'consultar DC'}
+                    </button>
+                  </span>
                 ) : null}
-              </label>
-            </div>
-            <div className="flow-description-grid">
-              <label className="flow-field flow-wide-field">
-                <span className="flow-field-label">Descripción</span>
-                <AutoGrowTextarea
-                  value={content.description.description}
-                  minRows={2}
-                  placeholder="Qué logra el actor con este caso de uso y en qué condiciones."
-                  onChange={(event) => updateDescription('description', event.target.value)}
-                />
-              </label>
-              <label className="flow-field flow-wide-field">
-                <span className="flow-field-label">Parámetros de entrada</span>
-                <AutoGrowTextarea
-                  value={content.description.inputParameters}
-                  minRows={1}
-                  placeholder="Datos que recibe, separados por coma"
-                  onChange={(event) => updateDescription('inputParameters', event.target.value)}
-                />
-              </label>
-              <label className="flow-field">
-                <span className="flow-field-label">Precondición</span>
-                <AutoGrowTextarea
-                  value={content.description.precondition}
-                  minRows={2}
-                  placeholder="Condición que debe cumplirse antes"
-                  onChange={(event) => updateDescription('precondition', event.target.value)}
-                />
-              </label>
-              <label className="flow-field">
-                <span className="flow-field-label">Postcondición</span>
-                <AutoGrowTextarea
-                  value={content.description.postcondition}
-                  minRows={2}
-                  placeholder="Cómo queda el sistema al terminar"
-                  onChange={(event) => updateDescription('postcondition', event.target.value)}
-                />
-              </label>
-              {renderStateField('initialState', 'Estado inicial', 'Qué datos existen antes de empezar')}
-              {renderStateField('finalState', 'Estado final', 'Qué datos existen al terminar')}
-            </div>
-          </section>
-
-          <section className="flow-card" id="camino-basico">
-            <div className="flow-section-heading">
-              <h4>Camino básico</h4>
-            </div>
-            {renderFlowRows('basic', content.basicFlow, tableActions('basic'))}
-          </section>
-
-          <section className="flow-card" id="caminos-alternativos">
-            <div className="flow-section-heading">
-              <h4>Caminos alternativos</h4>
-            </div>
-            {content.alternativeFlows.length === 0 ? (
-              <div className="flow-empty">
-                <p>Todavía no hay caminos alternativos. Para abrir uno desde un paso, poné el cursor en esa línea y apretá <kbd>{shortcutLabel('⇧⌘A')}</kbd>.</p>
-                <button className="secondary-action" type="button" onClick={addAlternativeFlow}>
-                  <Split size={15} aria-hidden="true" />
-                  Agregar camino alternativo
-                </button>
               </div>
-            ) : (
-              content.alternativeFlows.map((flow) => {
-                const isCollapsed = collapsedAlternativeIds.has(flow.id);
-                const tableId: FlowTableId = `alternative:${flow.id}`;
-                const branch = findFlowBranch(content, flow.code);
-                const defaultFirst = getDefaultFirstStepNumber(content, flow);
-                const branchTable = branch === null
-                  ? ''
-                  : branch.tableCode === 'basic' ? 'del camino básico' : `de ${branch.tableCode}`;
 
-                return (
-                  <article className="alternative-flow-card" id={`camino-${flow.id}`} key={flow.id}>
-                    <div className="alternative-flow-header">
-                      <button
-                        className="alternative-collapse-button"
-                        type="button"
-                        onClick={() => toggleAlternativeCollapsed(flow.id)}
-                        aria-expanded={!isCollapsed}
-                        aria-label={isCollapsed ? `Expandir ${flow.code}` : `Colapsar ${flow.code}`}
-                      >
-                        {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                      </button>
-                      <strong className="alternative-code">{flow.code}</strong>
-                      <input
-                        aria-label={`Nombre de ${flow.code}`}
-                        className="alternative-name-input"
-                        ref={(element) => {
-                          if (element === null) alternativeNameRefs.current.delete(flow.id);
-                          else alternativeNameRefs.current.set(flow.id, element);
-                        }}
-                        value={flow.name}
-                        placeholder="Nombre del camino alternativo"
-                        onChange={(event) => updateAlternativeFlow(flow.id, { name: event.target.value })}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' && flow.steps[0] !== undefined) {
-                            event.preventDefault();
-                            setCollapsedAlternativeIds((current) => {
-                              const next = new Set(current);
-                              next.delete(flow.id);
-                              return next;
-                            });
-                            setPendingFocus({ tableId, stepId: flow.steps[0].id, field: 'system' });
-                          }
-                        }}
-                      />
-                      {branch !== null && branch.number !== undefined ? (
-                        <button
-                          className="alternative-branch"
-                          type="button"
-                          title="Ir al paso desde el que se toma este camino"
-                          onClick={() => revealCell({
-                            tableId: branch.tableCode === 'basic'
-                              ? 'basic'
-                              : `alternative:${content.alternativeFlows.find((candidate) => normalizeFlowCode(candidate.code) === branch.tableCode)?.id ?? ''}`,
-                            stepId: branch.stepId,
-                            field: branch.field,
-                            lineIndex: branch.lineIndex,
-                          })}
-                        >
-                          desde paso {branch.number} {branchTable}
-                        </button>
-                      ) : (
-                        <span
-                          className="alternative-branch alternative-branch-missing"
-                          title="Ningún paso lleva a este camino todavía: escribí su código en la columna Ref. del paso desde el que sale."
-                        >
-                          sin paso de origen
-                        </span>
-                      )}
-                      <label className="alternative-first-step" title="Número con el que empieza este camino">
-                        <span>empieza en</span>
+              {/* ============================================================
+                  BLOQUE 1: LISTA DESCRIPTIVA (tabla de 2 columnas, 9 campos)
+                 ============================================================ */}
+              <section className="ucf-block-card" id="ucf-descripcion">
+                <header className="ucf-block-header">
+                  <button
+                    aria-expanded={showDescription}
+                    className="ucf-collapse-toggle"
+                    type="button"
+                    onClick={() => setShowDescription((v) => !v)}
+                  >
+                    {showDescription ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <span>1. Lista Descriptiva del Caso de Uso</span>
+                  </button>
+                  <span className="ucf-block-meta">Formato oficial · 9 campos</span>
+                </header>
+
+                {showDescription ? (
+                  <div className="ucf-desc-table">
+                    <datalist id="ucf-actor-suggestions">
+                      {actorSuggestions.map((actor) => <option key={actor} value={actor} />)}
+                    </datalist>
+                    <datalist id="ucf-cu-suggestions">
+                      {useCaseNames.map((name) => <option key={name} value={`(CU ${name})`} />)}
+                    </datalist>
+
+                    <div className="ucf-desc-row">
+                      <label className="ucf-desc-label" htmlFor="ucf-field-number">Número</label>
+                      <div className="ucf-desc-value is-compact">
                         <input
+                          id="ucf-field-number"
                           inputMode="numeric"
-                          min={1}
-                          type="number"
-                          value={flow.firstStepNumber ?? ''}
-                          placeholder={String(defaultFirst)}
-                          onChange={(event) => {
-                            const parsed = Number.parseInt(event.target.value, 10);
-                            updateAlternativeFlow(
-                              flow.id,
-                              { firstStepNumber: Number.isFinite(parsed) && parsed > 0 ? parsed : undefined },
-                              true,
-                            );
-                          }}
+                          placeholder="ej. 16"
+                          value={content.description.useCaseNumber}
+                          onChange={(event) => updateDescription({ useCaseNumber: event.target.value })}
                         />
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <label className="ucf-desc-label" htmlFor="ucf-field-name">Nombre del Caso de Uso</label>
+                      <div className="ucf-desc-value">
+                        <input
+                          className="ucf-desc-name-input"
+                          id="ucf-field-name"
+                          placeholder="Verbo en infinitivo + objeto (ej. Asentar Resultado, Registrar Trámite)"
+                          value={content.description.useCaseName}
+                          onChange={(event) => updateDescription({ useCaseName: event.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <label className="ucf-desc-label" htmlFor="ucf-field-actor">Actor</label>
+                      <div className="ucf-desc-value">
+                        <input
+                          id="ucf-field-actor"
+                          list="ucf-actor-suggestions"
+                          placeholder="Actor principal / iniciador (ej. Especialista, Consultor)"
+                          value={content.description.actor}
+                          onChange={(event) => updateDescription({ actor: event.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <label className="ucf-desc-label" htmlFor="ucf-field-desc">Descripción</label>
+                      <div className="ucf-desc-value">
+                        <AutoGrowTextarea
+                          id="ucf-field-desc"
+                          minRows={2}
+                          placeholder="Objetivo, alcance y reglas de negocio clave del Caso de Uso (sin repetir solo el título)."
+                          value={content.description.description}
+                          onChange={(event) => updateDescription({ description: event.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <span className="ucf-desc-label" id="ucf-priority-lbl">Prioridad</span>
+                      <div className="ucf-desc-value">
+                        <div aria-labelledby="ucf-priority-lbl" className="ucf-priority-group" role="radiogroup">
+                          {PRIORITIES.map((priority) => (
+                            <button
+                              aria-checked={content.description.priority === priority}
+                              className={content.description.priority === priority ? 'active' : undefined}
+                              key={priority}
+                              role="radio"
+                              type="button"
+                              onClick={() => updateDescription({ priority })}
+                            >
+                              {priority}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <span className="ucf-desc-label">Parámetros de Entrada</span>
+                      <div className="ucf-desc-value">
+                        <InputParametersEditor
+                          parameters={content.description.inputParameters}
+                          onChange={(inputParameters) => updateDescription({ inputParameters })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <label className="ucf-desc-label" htmlFor="ucf-field-precondition">
+                        Precondición
+                        <small>Opcional · garantizado por CU previo</small>
                       </label>
-                      <button
-                        aria-label={`Eliminar ${flow.code}`}
-                        className="alternative-delete"
-                        type="button"
-                        title={`Eliminar ${flow.code}`}
-                        onClick={() => deleteAlternativeFlow(flow.id)}
-                      >
-                        <Trash2 size={15} />
+                      <div className="ucf-desc-value">
+                        <AutoGrowTextarea
+                          id="ucf-field-precondition"
+                          minRows={1}
+                          placeholder="ej. Especialista instanciado (CU Loguear Usuario) — no se valida en este CU"
+                          value={content.description.precondition}
+                          onChange={(event) => updateDescription({ precondition: event.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <span className="ucf-desc-label">
+                        Estado Inicial
+                        <small>Instancias persistidas controladas al inicio</small>
+                      </span>
+                      <div className="ucf-desc-value">
+                        <StateTreeEditor
+                          blocks={content.description.initialState}
+                          highlightedId={highlightedId}
+                          inputParamNames={inputParamNames}
+                          mode="initial"
+                          symbolIndex={symbolIndex}
+                          vocabulary={vocabulary}
+                          onChange={(initialState) => updateDescription({ initialState })}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="ucf-desc-row">
+                      <span className="ucf-desc-label">
+                        Estado Final
+                        <small>Instancias creadas o modificadas</small>
+                      </span>
+                      <div className="ucf-desc-value">
+                        <StateTreeEditor
+                          blocks={content.description.finalState}
+                          highlightedId={highlightedId}
+                          inputParamNames={inputParamNames}
+                          mode="final"
+                          symbolIndex={symbolIndex}
+                          vocabulary={vocabulary}
+                          onChange={(finalState) => updateDescription({ finalState })}
+                        />
+                      </div>
+                    </div>
+
+                    {content.description.legacyPostcondition ? (
+                      <div className="ucf-desc-row is-legacy">
+                        <span className="ucf-desc-label">
+                          Postcondición (v1)
+                          <small>No pertenece a la ficha oficial</small>
+                        </span>
+                        <div className="ucf-desc-value ucf-legacy-notice">
+                          <p>{content.description.legacyPostcondition}</p>
+                          <div className="ucf-legacy-actions">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const parsed = parseStateTextToBlocks(
+                                  content.description.legacyPostcondition ?? '',
+                                  'final',
+                                );
+                                updateDescription({
+                                  finalState: [...content.description.finalState, ...parsed],
+                                  legacyPostcondition: undefined,
+                                });
+                              }}
+                            >
+                              Mover a Estado Final
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateDescription({ legacyPostcondition: undefined })}
+                            >
+                              Descartar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+
+              {/* ============================================================
+                  BLOQUE 2: CAMINO BÁSICO / PRINCIPAL (Actor | Sistema | Ref.)
+                 ============================================================ */}
+              <section className="ucf-block-card" id="ucf-basico">
+                <header className="ucf-block-header">
+                  <button
+                    aria-expanded={showBasicFlow}
+                    className="ucf-collapse-toggle"
+                    type="button"
+                    onClick={() => setShowBasicFlow((v) => !v)}
+                  >
+                    {showBasicFlow ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <span>2. Camino Básico / Principal</span>
+                  </button>
+                  <label className="ucf-start-num-control" title="Número inicial del camino básico (normalmente 1)">
+                    <span>empieza en</span>
+                    <input
+                      inputMode="numeric"
+                      min={1}
+                      placeholder="1"
+                      type="number"
+                      value={content.basicFlowFirstStepNumber ?? ''}
+                      onChange={(event) => {
+                        const parsed = Number.parseInt(event.target.value, 10);
+                        commitContent({
+                          ...content,
+                          basicFlowFirstStepNumber: Number.isFinite(parsed) && parsed > 1 ? parsed : undefined,
+                        });
+                      }}
+                    />
+                  </label>
+                </header>
+
+                {showBasicFlow ? (
+                  <FlowStepsTable
+                    collapsedStepIds={collapsedStepIds}
+                    content={content}
+                    flowId="basic"
+                    highlightedStepId={highlightedId}
+                    numbering={numbering}
+                    registerFieldRef={registerFieldRef}
+                    steps={content.basicFlow}
+                    symbolIndex={symbolIndex}
+                    useCaseNames={useCaseNames}
+                    vocabulary={vocabulary}
+                    onChangeSteps={(basicFlow) => commitContent({ ...content, basicFlow })}
+                    onCreateAlternativeFromStep={createAlternativeFromStep}
+                    onFocusEditable={handleFocusEditable}
+                    onJumpToAlternative={jumpToAlternative}
+                    onJumpToStep={jumpToStep}
+                    onRequestFocusKey={setPendingFocusKey}
+                    onToggleCollapseStep={toggleCollapseStep}
+                  />
+                ) : null}
+              </section>
+
+              {/* ============================================================
+                  BLOQUE 3: CAMINOS ALTERNATIVOS
+                 ============================================================ */}
+              <section className="ucf-block-card" id="ucf-alternativos">
+                <header className="ucf-block-header">
+                  <button
+                    aria-expanded={showAlternatives}
+                    className="ucf-collapse-toggle"
+                    type="button"
+                    onClick={() => setShowAlternatives((v) => !v)}
+                  >
+                    {showAlternatives ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <span>3. Caminos Alternativos ({content.alternativeFlows.length})</span>
+                  </button>
+                  <button className="secondary-action ucf-header-add" type="button" onClick={addAlternativeFlow}>
+                    <Split size={13} aria-hidden="true" /> Agregar CA
+                  </button>
+                </header>
+
+                {showAlternatives ? (
+                  content.alternativeFlows.length === 0 ? (
+                    <div className="ucf-alt-empty">
+                      <p>
+                        Todavía no hay Caminos Alternativos. Usá <strong>+ CA</strong> en la columna <strong>Ref.</strong> de un <em>Comprobar</em>, <em>Controlar consistencia</em> o <em>Buscar</em>, o apretá <kbd>{shortcutLabel('⇧⌘A')}</kbd> desde cualquier subpaso.
+                      </p>
+                      <button className="secondary-action" type="button" onClick={addAlternativeFlow}>
+                        <Split size={14} aria-hidden="true" /> Crear Camino Alternativo N°1
                       </button>
                     </div>
-                    {!isCollapsed ? renderFlowRows(tableId, flow.steps, tableActions(tableId)) : (
-                      <p className="alternative-collapsed-summary">
-                        {getFirstStepNumber(content, flow)}. {flattenFlowRows(flow.steps).find((line) => line.body.trim().length > 0)?.body.trim() ?? 'Sin pasos'}
-                      </p>
-                    )}
-                  </article>
-                );
-              })
-            )}
-          </section>
+                  ) : (
+                    <div className="ucf-alt-list">
+                      {content.alternativeFlows.map((alt, index) => {
+                        const isCollapsed = collapsedAltIds.has(alt.id);
+                        const origin = numbering.branchOriginByFlowId.get(alt.id);
+                        const defaultStart = numbering.defaultFirstStepNumberByFlowId.get(alt.id) ?? 1;
+                        const effectiveStart = numbering.firstStepNumberByFlowId.get(alt.id) ?? defaultStart;
+                        const originFlowName = origin
+                          ? origin.flowId === 'basic'
+                            ? 'Camino básico'
+                            : formatAlternativeRef(
+                                content.alternativeFlows.find((a) => a.id === origin.flowId)?.number ?? 1,
+                              )
+                          : '';
+
+                        return (
+                          <article
+                            className={`ucf-alt-card${highlightedId === alt.id ? ' is-highlighted' : ''}`}
+                            id={`ucf-alt-${alt.id}`}
+                            key={alt.id}
+                          >
+                            <div className="ucf-alt-banner">
+                              <button
+                                aria-expanded={!isCollapsed}
+                                aria-label={isCollapsed ? `Expandir CA N°${alt.number}` : `Colapsar CA N°${alt.number}`}
+                                className="ucf-alt-collapse"
+                                type="button"
+                                onClick={() =>
+                                  setCollapsedAltIds((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(alt.id)) next.delete(alt.id);
+                                    else next.add(alt.id);
+                                    return next;
+                                  })
+                                }
+                              >
+                                {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                              </button>
+
+                              <span className="ucf-alt-prefix">Camino alternativo N°</span>
+                              <input
+                                aria-label="Número de Camino Alternativo"
+                                className="ucf-alt-num-input"
+                                inputMode="numeric"
+                                min={1}
+                                type="number"
+                                value={alt.number}
+                                onChange={(event) => {
+                                  const parsed = Number.parseInt(event.target.value, 10);
+                                  if (Number.isFinite(parsed) && parsed > 0) {
+                                    updateAlternativeFlow(alt.id, { number: parsed });
+                                  }
+                                }}
+                              />
+                              <span className="ucf-alt-colon">:</span>
+                              <input
+                                aria-label={`Causa de CA N°${alt.number}`}
+                                className="ucf-alt-title-input"
+                                placeholder="Descripción concreta de la causa (ej. No existe socio con número ingresado)"
+                                ref={(el) => {
+                                  if (el === null) altTitleRefs.current.delete(alt.id);
+                                  else altTitleRefs.current.set(alt.id, el);
+                                }}
+                                value={alt.title}
+                                onChange={(event) => updateAlternativeFlow(alt.id, { title: event.target.value })}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' && alt.steps[0]) {
+                                    event.preventDefault();
+                                    setPendingFocusKey(`main:${alt.steps[0].id}`);
+                                  }
+                                }}
+                              />
+
+                              <div className="ucf-alt-meta">
+                                {origin ? (
+                                  <button
+                                    className="ucf-alt-origin"
+                                    title="Volver al paso donde se dispara este CA"
+                                    type="button"
+                                    onClick={() => jumpToStep({ flowId: origin.flowId, stepId: origin.stepId })}
+                                  >
+                                    {`desde paso ${origin.stepNumber} · ${originFlowName}`}
+                                  </button>
+                                ) : (
+                                  <span className="ucf-alt-origin is-orphan" title="Agregá este CA en la columna Ref. del paso que lo dispara">
+                                    sin origen en Ref.
+                                  </span>
+                                )}
+
+                                <label
+                                  className="ucf-start-num-control"
+                                  title={`Inicio automático: ${defaultStart} (paso origen + 1). Podés sobreescribirlo si hace falta.`}
+                                >
+                                  <span>paso</span>
+                                  <input
+                                    inputMode="numeric"
+                                    min={1}
+                                    placeholder={String(defaultStart)}
+                                    type="number"
+                                    value={alt.firstStepNumberOverride ?? ''}
+                                    onChange={(event) => {
+                                      const parsed = Number.parseInt(event.target.value, 10);
+                                      updateAlternativeFlow(alt.id, {
+                                        firstStepNumberOverride:
+                                          Number.isFinite(parsed) && parsed > 0 ? parsed : undefined,
+                                      });
+                                    }}
+                                  />
+                                </label>
+
+                                <button
+                                  aria-label="Subir camino alternativo"
+                                  className="ucf-tiny-btn"
+                                  disabled={index === 0}
+                                  tabIndex={-1}
+                                  type="button"
+                                  onClick={() => moveAlternativeFlow(index, -1)}
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  aria-label="Bajar camino alternativo"
+                                  className="ucf-tiny-btn"
+                                  disabled={index === content.alternativeFlows.length - 1}
+                                  tabIndex={-1}
+                                  type="button"
+                                  onClick={() => moveAlternativeFlow(index, 1)}
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  aria-label={`Eliminar CA N°${alt.number}`}
+                                  className="ucf-tiny-btn is-danger"
+                                  tabIndex={-1}
+                                  type="button"
+                                  onClick={() => deleteAlternativeFlow(alt)}
+                                >
+                                  <Trash2 size={13} aria-hidden="true" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {isCollapsed ? (
+                              <p className="ucf-alt-collapsed-summary">
+                                {effectiveStart}. {alt.steps[0]?.title.trim() || 'Sin pasos'} ({alt.steps.length} {alt.steps.length === 1 ? 'paso' : 'pasos'})
+                              </p>
+                            ) : (
+                              <FlowStepsTable
+                                collapsedStepIds={collapsedStepIds}
+                                content={content}
+                                flowId={alt.id}
+                                highlightedStepId={highlightedId}
+                                numbering={numbering}
+                                registerFieldRef={registerFieldRef}
+                                steps={alt.steps}
+                                symbolIndex={symbolIndex}
+                                useCaseNames={useCaseNames}
+                                vocabulary={vocabulary}
+                                onChangeSteps={(steps) => updateAlternativeFlow(alt.id, { steps })}
+                                onCreateAlternativeFromStep={createAlternativeFromStep}
+                                onFocusEditable={handleFocusEditable}
+                                onJumpToAlternative={jumpToAlternative}
+                                onJumpToStep={jumpToStep}
+                                onRequestFocusKey={setPendingFocusKey}
+                                onToggleCollapseStep={toggleCollapseStep}
+                              />
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : null}
+              </section>
+            </div>
+          )}
         </section>
-        {reviewOpen ? (
+
+        {sidePanel === 'class-diagram' ? (
+          <ClassDiagramSidePanel
+            diagramName={associatedClassDiagram?.name}
+            pseudoEntities={pseudoEntities}
+            symbolIndex={symbolIndex}
+            onClose={() => setSidePanel('none')}
+            onInsertToken={handleInsertTokenFromPanel}
+          />
+        ) : sidePanel === 'review' ? (
           <DiagramReviewPanel
-            helper="Comprueba referencias a pasos y caminos, bloques SI y POR CADA, y que las clases y atributos existan en el diagrama asociado. No reemplaza la corrección del flujo."
+            helper="Comprueba navegabilidad en Leer, clases y atributos contra el DC, referencias a CAs y pasos, Guardar Cambios y cierre de caminos. No bloquea la edición."
+            isEmpty={content.basicFlow.length === 0 && content.alternativeFlows.length === 0 && content.description.initialState.length === 0}
             issues={reviewIssues}
-            title="Revisión del flujo"
-            onClose={() => setReviewOpen(false)}
+            title="Revisión de cátedra"
+            onClose={() => setSidePanel('none')}
             onFocus={focusIssue}
           />
         ) : null}
       </div>
+
+      {exportDialogFormat !== null ? (
+        <FlowExportDialog
+          alternatives={content.alternativeFlows}
+          initialFormat={exportDialogFormat}
+          onClose={() => setExportDialogFormat(null)}
+          onExport={(format, opts) => {
+            void runExport(format, opts);
+          }}
+        />
+      ) : null}
     </main>
   );
 }

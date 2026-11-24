@@ -1,62 +1,81 @@
-import {
-  splitRowByRefs,
-  type FlowDocLine,
-  type FlowDocTable,
-  type FlowDocument,
-  type FlowDocSegment,
-} from './flowDocument';
+import type { FlowDocLine, FlowDocSegment, FlowDocTable, FlowDocument } from './flowDocument';
 import { createZip } from './zipStore';
 
 /*
- * Word export: the same two-column specification table and Actor / Sistema /
- * Ref. tables the course documents use, in Arial 10 on A4 landscape.
+ * Word (.docx) export matching the UTN FRM Diseño de Sistemas template:
+ * - Default A4 Portrait (optional Landscape)
+ * - Descriptive List with dark left column (#26303D) and white bold labels
+ * - 3-column Flow table (Actor 22% | Sistema 65% | Ref. 13%)
+ * - Sub-row alignment for Ref. (CA N°X, GUI-N) with no internal horizontal rules
+ * - Visual box frames via <w:pBdr> around Por cada / Mientras loops
+ * - Underlined classes, italic attributes, bold main steps & Actor actions
  */
 
-const PAGE_WIDTH = 16838;
-const PAGE_HEIGHT = 11906;
-const MARGIN = 720;
-const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
-const LABEL_WIDTH = 1900;
-const REF_WIDTH = 1300;
-const ACTOR_WIDTH = 3700;
-const SYSTEM_WIDTH = CONTENT_WIDTH - REF_WIDTH - ACTOR_WIDTH;
-const DEPTH_INDENT = 380;
+const MARGIN = 720; // 0.5 in
+const DEPTH_INDENT = 260;
 const BULLETS = ['●', '○', '■'];
+
+const DARK_HEADER_HEX = '26303D';
+const SECTION_BANNER_HEX = 'EBEFF4';
+const TABLE_HEADER_HEX = 'F4F6F8';
 
 const escapeXml = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const run = (segment: FlowDocSegment, forceBold = false): string => {
+const run = (segment: FlowDocSegment, forceBold = false, color?: string): string => {
   const properties = [
     forceBold || segment.bold ? '<w:b/>' : '',
     segment.italic ? '<w:i/>' : '',
     segment.underline ? '<w:u w:val="single"/>' : '',
+    color ? `<w:color w:val="${color}"/>` : '',
   ].join('');
   return `<w:r>${properties.length > 0 ? `<w:rPr>${properties}</w:rPr>` : ''}<w:t xml:space="preserve">${escapeXml(segment.text)}</w:t></w:r>`;
 };
 
-const paragraph = (inner: string, options: { align?: 'center'; hanging?: number; left?: number } = {}): string => {
+const paragraph = (
+  inner: string,
+  options: {
+    align?: 'center';
+    hanging?: number;
+    left?: number;
+    loopBox?: { start?: boolean; end?: boolean };
+  } = {},
+): string => {
+  const pBdr = options.loopBox
+    ? `<w:pBdr>${
+        options.loopBox.start ? '<w:top w:val="single" w:sz="6" w:space="3" w:color="2D3748"/>' : ''
+      }<w:left w:val="single" w:sz="6" w:space="6" w:color="2D3748"/><w:right w:val="single" w:sz="6" w:space="6" w:color="2D3748"/>${
+        options.loopBox.end ? '<w:bottom w:val="single" w:sz="6" w:space="3" w:color="2D3748"/>' : ''
+      }<w:between w:val="none"/></w:pBdr>`
+    : '';
+
   const properties = [
     options.align === 'center' ? '<w:jc w:val="center"/>' : '',
     options.left !== undefined ? `<w:ind w:left="${options.left}" w:hanging="${options.hanging ?? 0}"/>` : '',
+    pBdr,
   ].join('');
   return `<w:p>${properties.length > 0 ? `<w:pPr>${properties}</w:pPr>` : ''}${inner}</w:p>`;
 };
 
-const markerWidth = (marker: string): number => Math.max(300, marker.length * 105 + 140);
+const markerWidth = (marker: string): number => Math.max(260, marker.length * 95 + 120);
 
 const lineParagraph = (line: FlowDocLine): string => {
   const marker = line.number ?? (line.bullet !== undefined ? BULLETS[line.bullet] : undefined);
   const text = line.segments.map((segment) => run(segment, line.bold)).join('');
+  const loopBox = (line.loopDepth ?? 0) > 0
+    ? { start: Boolean(line.loopStarts), end: Boolean(line.loopEnds) }
+    : undefined;
+  const extraLoopIndent = (line.loopDepth ?? 0) * 120;
 
   if (marker === undefined) {
-    return paragraph(text, { left: line.depth * DEPTH_INDENT, hanging: 0 });
+    return paragraph(text, { left: line.depth * DEPTH_INDENT + extraLoopIndent, hanging: 0, loopBox });
   }
 
   const hanging = markerWidth(marker);
   return paragraph(`${run({ text: marker }, line.bold)}<w:r><w:tab/></w:r>${text}`, {
-    left: line.depth * DEPTH_INDENT + hanging,
+    left: line.depth * DEPTH_INDENT + extraLoopIndent + hanging,
     hanging,
+    loopBox,
   });
 };
 
@@ -66,7 +85,12 @@ const cellParagraphs = (lines: FlowDocLine[]): string =>
 const cell = (
   width: number,
   inner: string,
-  options: { fill?: string; mergeContinue?: boolean; mergeStart?: boolean; noBottom?: boolean; noTop?: boolean; span?: number } = {},
+  options: {
+    fill?: string;
+    noBottom?: boolean;
+    noTop?: boolean;
+    span?: number;
+  } = {},
 ): string => {
   const borders = [
     options.noTop ? '<w:top w:val="nil"/>' : '',
@@ -75,11 +99,10 @@ const cell = (
   const properties = [
     `<w:tcW w:w="${width}" w:type="dxa"/>`,
     options.span !== undefined ? `<w:gridSpan w:val="${options.span}"/>` : '',
-    options.mergeStart ? '<w:vMerge w:val="restart"/>' : options.mergeContinue ? '<w:vMerge/>' : '',
     borders.length > 0 ? `<w:tcBorders>${borders}</w:tcBorders>` : '',
     options.fill !== undefined ? `<w:shd w:val="clear" w:color="auto" w:fill="${options.fill}"/>` : '',
   ].join('');
-  return `<w:tc><w:tcPr>${properties}</w:tcPr>${options.mergeContinue ? paragraph('') : inner}</w:tc>`;
+  return `<w:tc><w:tcPr>${properties}</w:tcPr>${inner}</w:tc>`;
 };
 
 const table = (widths: number[], rows: string[]): string => `
@@ -88,11 +111,11 @@ const table = (widths: number[], rows: string[]): string => `
     <w:tblW w:w="${widths.reduce((total, width) => total + width, 0)}" w:type="dxa"/>
     <w:tblLayout w:type="fixed"/>
     <w:tblBorders>
-      <w:top w:val="single" w:sz="6" w:color="000000"/><w:left w:val="single" w:sz="6" w:color="000000"/>
-      <w:bottom w:val="single" w:sz="6" w:color="000000"/><w:right w:val="single" w:sz="6" w:color="000000"/>
-      <w:insideH w:val="single" w:sz="6" w:color="000000"/><w:insideV w:val="single" w:sz="6" w:color="000000"/>
+      <w:top w:val="single" w:sz="6" w:color="374151"/><w:left w:val="single" w:sz="6" w:color="374151"/>
+      <w:bottom w:val="single" w:sz="6" w:color="374151"/><w:right w:val="single" w:sz="6" w:color="374151"/>
+      <w:insideH w:val="single" w:sz="6" w:color="374151"/><w:insideV w:val="single" w:sz="6" w:color="374151"/>
     </w:tblBorders>
-    <w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="90" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="90" w:type="dxa"/></w:tblCellMar>
+    <w:tblCellMar><w:top w:w="45" w:type="dxa"/><w:left w:w="95" w:type="dxa"/><w:bottom w:w="45" w:type="dxa"/><w:right w:w="95" w:type="dxa"/></w:tblCellMar>
   </w:tblPr>
   <w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>
   ${rows.join('\n')}
@@ -101,38 +124,63 @@ const table = (widths: number[], rows: string[]): string => `
 const tableRow = (cells: string[], header = false): string =>
   `<w:tr>${header ? '<w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>' : ''}${cells.join('')}</w:tr>`;
 
-const descriptionTable = (document: FlowDocument): string =>
-  table(
-    [LABEL_WIDTH, CONTENT_WIDTH - LABEL_WIDTH],
+const descriptionTable = (document: FlowDocument, contentWidth: number): string => {
+  const labelWidth = Math.round(contentWidth * 0.24);
+  const valueWidth = contentWidth - labelWidth;
+  return table(
+    [labelWidth, valueWidth],
     document.fields.map((field) =>
       tableRow([
-        cell(LABEL_WIDTH, paragraph(run({ text: field.label }))),
-        cell(CONTENT_WIDTH - LABEL_WIDTH, cellParagraphs(field.lines)),
+        cell(labelWidth, paragraph(run({ text: field.label, bold: true }, true, 'FFFFFF')), { fill: DARK_HEADER_HEX }),
+        cell(valueWidth, cellParagraphs(field.lines)),
       ]),
     ),
   );
+};
 
-const flowTable = (flowTable: FlowDocTable): string => {
-  const widths = [ACTOR_WIDTH, SYSTEM_WIDTH, REF_WIDTH];
-  const rows = [
-    tableRow([cell(CONTENT_WIDTH, paragraph(run({ text: flowTable.title, bold: true }), { align: 'center' }), { span: 3, fill: 'F2F2F2' })], true),
+const flowTable = (flow: FlowDocTable, contentWidth: number): string => {
+  const actorWidth = Math.round(contentWidth * 0.22);
+  const refWidth = Math.round(contentWidth * 0.13);
+  const systemWidth = contentWidth - actorWidth - refWidth;
+  const widths = [actorWidth, systemWidth, refWidth];
+
+  const rows: string[] = [];
+  if (flow.subtitle) {
+    rows.push(
+      tableRow([
+        cell(contentWidth, paragraph(run({ text: flow.subtitle, bold: true }, true, 'FFFFFF'), { align: 'center' }), {
+          span: 3,
+          fill: DARK_HEADER_HEX,
+        }),
+      ], true),
+    );
+  }
+  rows.push(
     tableRow([
-      cell(ACTOR_WIDTH, paragraph(run({ text: 'ACTOR', bold: true }), { align: 'center' })),
-      cell(SYSTEM_WIDTH, paragraph(run({ text: 'SISTEMA', bold: true }), { align: 'center' })),
-      cell(REF_WIDTH, paragraph(run({ text: 'REF.', bold: true }))),
+      cell(contentWidth, paragraph(run({ text: flow.title, bold: true }), { align: 'center' }), {
+        span: 3,
+        fill: SECTION_BANNER_HEX,
+      }),
     ], true),
-  ];
+    tableRow([
+      cell(actorWidth, paragraph(run({ text: 'Actor', bold: true }), { align: 'center' }), { fill: TABLE_HEADER_HEX }),
+      cell(systemWidth, paragraph(run({ text: 'Sistema', bold: true }), { align: 'center' }), { fill: TABLE_HEADER_HEX }),
+      cell(refWidth, paragraph(run({ text: 'Ref.', bold: true }), { align: 'center' }), { fill: TABLE_HEADER_HEX }),
+    ], true),
+  );
 
-  flowTable.rows.forEach((row) => {
-    const parts = splitRowByRefs(row);
-    parts.forEach((part, index) => {
+  flow.rows.forEach((row) => {
+    const total = row.subRows.length;
+    row.subRows.forEach((sub, index) => {
       const first = index === 0;
-      const last = index === parts.length - 1;
-      const merged = parts.length > 1;
+      const last = index === total - 1;
+      const refParagraphs = sub.ref
+        ? sub.ref.split('\n').map((refLine) => paragraph(run({ text: refLine }), { align: 'center' })).join('')
+        : paragraph('');
       rows.push(tableRow([
-        cell(ACTOR_WIDTH, cellParagraphs(part.actor), { mergeStart: merged && first, mergeContinue: merged && !first }),
-        cell(SYSTEM_WIDTH, cellParagraphs(part.system), { noTop: !first, noBottom: !last }),
-        cell(REF_WIDTH, paragraph(part.ref.length > 0 ? run({ text: part.ref }) : ''), { noTop: !first, noBottom: !last }),
+        cell(actorWidth, cellParagraphs(sub.actor), { noTop: !first, noBottom: !last }),
+        cell(systemWidth, cellParagraphs(sub.system), { noTop: !first, noBottom: !last }),
+        cell(refWidth, refParagraphs, { noTop: !first, noBottom: !last }),
       ]));
     });
   });
@@ -142,25 +190,39 @@ const flowTable = (flowTable: FlowDocTable): string => {
 
 const spacer = paragraph('');
 
-const buildDocumentXml = (document: FlowDocument): string => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+export const buildFlowDocumentXml = (
+  document: FlowDocument,
+  options: { orientation?: 'portrait' | 'landscape' } = {},
+): string => {
+  const orientation = options.orientation ?? 'portrait';
+  const pageWidth = orientation === 'portrait' ? 11906 : 16838;
+  const pageHeight = orientation === 'portrait' ? 16838 : 11906;
+  const contentWidth = pageWidth - MARGIN * 2;
+
+  const sections: string[] = [];
+  if (document.includeDescription) sections.push(descriptionTable(document, contentWidth));
+  if (document.includeBasicFlow) sections.push(flowTable(document.basic, contentWidth));
+  if (document.includeAlternatives) {
+    document.alternatives.forEach((alt) => sections.push(flowTable(alt, contentWidth)));
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 <w:body>
-${descriptionTable(document)}
-${spacer}
-${flowTable(document.basic)}
-${document.alternatives.map((alternative) => `${spacer}${flowTable(alternative)}`).join('\n')}
+${sections.join(`\n${spacer}\n`)}
 ${spacer}
 <w:sectPr>
-  <w:pgSz w:w="${PAGE_WIDTH}" w:h="${PAGE_HEIGHT}" w:orient="landscape"/>
+  <w:pgSz w:w="${pageWidth}" w:h="${pageHeight}"${orientation === 'landscape' ? ' w:orient="landscape"' : ''}/>
   <w:pgMar w:top="${MARGIN}" w:right="${MARGIN}" w:bottom="${MARGIN}" w:left="${MARGIN}" w:header="360" w:footer="360" w:gutter="0"/>
 </w:sectPr>
 </w:body>
 </w:document>`;
+};
 
 const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:docDefaults>
-    <w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/><w:sz w:val="20"/><w:szCs w:val="20"/><w:lang w:val="es-AR"/></w:rPr></w:rPrDefault>
+    <w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/><w:sz w:val="19"/><w:szCs w:val="19"/><w:lang w:val="es-AR"/></w:rPr></w:rPrDefault>
     <w:pPrDefault><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault>
   </w:docDefaults>
   <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
@@ -184,11 +246,14 @@ const documentRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`;
 
-export const createFlowDocx = (document: FlowDocument): Blob => {
+export const createFlowDocx = (
+  document: FlowDocument,
+  options: { orientation?: 'portrait' | 'landscape' } = {},
+): Blob => {
   const bytes = createZip([
     { name: '[Content_Types].xml', data: contentTypesXml },
     { name: '_rels/.rels', data: rootRelsXml },
-    { name: 'word/document.xml', data: buildDocumentXml(document) },
+    { name: 'word/document.xml', data: buildFlowDocumentXml(document, options) },
     { name: 'word/styles.xml', data: stylesXml },
     { name: 'word/_rels/document.xml.rels', data: documentRelsXml },
   ]);
@@ -196,5 +261,3 @@ export const createFlowDocx = (document: FlowDocument): Blob => {
     type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   });
 };
-
-export const buildFlowDocumentXml = buildDocumentXml;

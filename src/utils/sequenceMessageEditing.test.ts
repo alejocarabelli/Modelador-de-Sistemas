@@ -65,7 +65,7 @@ const flows = [
       alternativeFlows: [],
     },
   },
-] as UseCaseFlowArtifact[];
+] as unknown as UseCaseFlowArtifact[];
 
 const message = (overrides: Partial<SequenceMessage> = {}): SequenceMessage => ({
   id: 'message-1',
