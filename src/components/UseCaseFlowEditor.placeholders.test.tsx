@@ -94,8 +94,9 @@ describe('UseCaseFlowEditor v2 rendering', () => {
     // Aligned Ref. chips, loop frame, SI / SINO / FINSI, and CA N°1 banner
     expect(html).toContain('GUI-1');
     expect(html).toContain('CA N°1');
-    expect(html).toContain('ucf-loop-block');
-    expect(html).toContain('>SI<');
+    // One line per row: the loop draws its frame row by row, SI/SINO are editable lines, FINSI is drawn.
+    expect(html).toContain('fl-loop-box');
+    expect(html).toMatch(/>SI\b/);
     expect(html).toContain('>SINO<');
     expect(html).toContain('>FINSI<');
     expect(html).toContain('Camino alternativo N°');

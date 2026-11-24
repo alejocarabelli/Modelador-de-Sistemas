@@ -412,6 +412,7 @@ export const reviewUseCaseFlow = (
 
         if (node.kind === 'action') {
           inspectAction(node, mainStepId, node.speaker ?? 'system');
+          if (node.children) inspectSubNodes(node.children, mainStepId);
         } else if (node.kind === 'loop') {
           checkRefs(node.refs, flowId, node.id, mainStepId);
           checkAnchorExists(node.stepRef, flowId, node.id, mainStepId, 'referencia de paso');
@@ -465,7 +466,7 @@ export const reviewUseCaseFlow = (
       const walk = (nodes: FlowSubNode[]): boolean =>
         nodes.some((n) =>
           n.kind === 'action'
-            ? n.primitive === 'controlar-consistencia' || /controlar\s+consistencia/i.test(n.text)
+            ? n.primitive === 'controlar-consistencia' || /controlar\s+consistencia/i.test(n.text) || walk(n.children ?? [])
             : n.kind === 'loop'
               ? walk(n.children)
               : walk(n.thenChildren) || (n.elseChildren ? walk(n.elseChildren) : false));

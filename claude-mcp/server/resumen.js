@@ -275,7 +275,7 @@ function numerarFlujoV2(contenido) {
       const num = `${prefijo}.${contador}`;
       contador += 1;
       numeroPorId.set(nodo.id, num);
-      if (nodo.kind === 'loop') {
+      if (nodo.kind === 'loop' || nodo.kind === 'action') {
         numerarSubNodos(nodo.children, num, 1);
       } else if (nodo.kind === 'conditional') {
         const sig = numerarSubNodos(nodo.thenChildren, num, 1);
@@ -301,7 +301,7 @@ function numerarFlujoV2(contenido) {
     const enSub = (nodos) => {
       for (const nodo of lista(nodos)) {
         for (const r of lista(nodo.refs)) if (r.kind === 'ca' && r.flowId) refsCa.push({ targetFlowId: r.flowId, flujoId, stepId: nodo.id });
-        if (nodo.kind === 'loop') enSub(nodo.children);
+        if (nodo.kind === 'loop' || nodo.kind === 'action') enSub(nodo.children);
         else if (nodo.kind === 'conditional') { enSub(nodo.thenChildren); enSub(nodo.elseChildren); }
       }
     };
@@ -422,6 +422,7 @@ function resumirFlujoV2(contenido, proyecto) {
         const cuerpo = nodo.jumpTarget ? formatearSalto(nodo.jumpTarget, texto(nodo.text)) : `${texto(nodo.text)}${formatearAncla(nodo.stepRef, flujoId)}`;
         out.push(`${sangria}${num}. ${quien}${cuerpo}${refs}${id(nodo)}`);
         out.push(...resumirDetalles(nodo.details, `${sangria}  `, flujoId));
+        out.push(...resumirSubNodos(nodo.children, `${sangria}  `, flujoId));
       } else if (nodo.kind === 'loop') {
         out.push(`${sangria}[BUCLE ${nodo.loopKind === 'mientras' ? 'Mientras' : 'Por cada'}] ${num}. ${texto(nodo.header)}${formatearAncla(nodo.stepRef, flujoId)}${refs}${id(nodo)}`);
         out.push(...resumirDetalles(nodo.details, `${sangria}  `, flujoId));

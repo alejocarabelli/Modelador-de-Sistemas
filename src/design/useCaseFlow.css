@@ -952,6 +952,7 @@
 }
 
 .ucf-rich-input {
+  min-height: 0;
   position: absolute;
   inset: 0;
   border: none;
@@ -2334,4 +2335,220 @@
     z-index: 35;
     box-shadow: var(--shadow-popover, 0 8px 24px rgba(0, 0, 0, 0.16));
   }
+}
+
+/* ==========================================================================
+   Camino como documento: una línea por renglón, Actor | Sistema | Ref.
+   ========================================================================== */
+.fl-table {
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--panel-background);
+  overflow: visible;
+}
+
+.fl-head,
+.fl-row {
+  display: grid;
+  grid-template-columns: 22% minmax(0, 1fr) 13%;
+}
+
+.fl-head {
+  border-bottom: 1px solid var(--panel-border-strong);
+  background: var(--panel-subtle-background);
+  border-radius: var(--radius-sm, 6px) var(--radius-sm, 6px) 0 0;
+}
+
+.fl-head span {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--panel-secondary-text);
+}
+
+.fl-head span + span,
+.fl-cell + .fl-cell {
+  border-left: 1px solid var(--panel-border);
+}
+
+.fl-row.is-turn {
+  border-top: 1px solid var(--panel-border);
+}
+
+.fl-row:focus-within {
+  background: color-mix(in srgb, var(--accent-soft) 30%, transparent);
+}
+
+.fl-row.is-highlighted {
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+  transition: background 0.4s;
+}
+
+.fl-cell {
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.fl-row.is-turn .fl-cell,
+.fl-row:first-of-type .fl-cell {
+  padding-top: 6px;
+}
+
+.fl-row:last-of-type .fl-cell {
+  padding-bottom: 6px;
+}
+
+.fl-line {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 24px;
+}
+
+.fl-marker {
+  flex: none;
+  min-width: 1.6em;
+  padding-top: 1px;
+  font-family: var(--ui-font-family);
+  font-size: var(--text-md, 13px);
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  color: var(--panel-secondary-text);
+  user-select: none;
+}
+
+.fl-line.is-title .fl-marker {
+  font-weight: 600;
+  color: var(--panel-text);
+}
+
+.fl-marker.is-bullet {
+  min-width: 1em;
+  text-align: center;
+}
+
+.app-shell .fl-line .ucf-rich-input {
+  /* The mirror sets the height; the textarea just covers it. */
+  height: 100% !important;
+  min-height: 0;
+}
+
+.app-shell .fl-line .ucf-rich-input:focus,
+.app-shell[data-ui-version] .fl-line .ucf-rich-input:focus-visible {
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}
+
+.fl-end {
+  padding: 1px 3px;
+  font-size: var(--text-md, 13px);
+  line-height: 1.5;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* Recuadro del POR CADA / MIENTRAS: cada renglón dibuja su tramo. */
+.fl-loop-box {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  border-left: 1px solid var(--panel-border-strong);
+  border-right: 1px solid var(--panel-border-strong);
+  pointer-events: none;
+}
+
+.fl-loop-box.is-start {
+  top: 1px;
+  border-top: 1px solid var(--panel-border-strong);
+}
+
+.fl-loop-box.is-end {
+  bottom: 1px;
+  border-bottom: 1px solid var(--panel-border-strong);
+}
+
+.fl-ref {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.fl-ref-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  border: none;
+  background: transparent;
+  font-family: var(--app-code-font);
+  font-size: 12px;
+  color: var(--accent-strong);
+  padding: 0 3px;
+}
+
+.fl-ref-input:focus {
+  outline: 1px solid var(--accent-border);
+  border-radius: var(--radius-xs, 3px);
+}
+
+.fl-ref-jump {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--panel-muted-text);
+  cursor: pointer;
+  border-radius: var(--radius-xs, 3px);
+}
+
+.fl-ref-jump:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.fl-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 7px 10px;
+  border-top: 1px solid var(--panel-border);
+  font-size: 11px;
+  color: var(--panel-muted-text);
+}
+
+.fl-hints kbd {
+  font-family: var(--app-code-font);
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  background: var(--panel-subtle-background);
+}
+
+/* Estado Inicial / Final como texto con viñetas */
+.ucf-state-text .ucf-rich-mirror,
+.ucf-state-text .ucf-rich-input {
+  padding: 4px 6px;
+  min-height: 3.2em;
+}
+
+.app-shell .ucf-state-text .ucf-rich-input {
+  min-height: 0;
+  height: 100% !important;
+}
+
+.ucf-completion-hint {
+  padding: 4px 8px 2px;
+  border-top: 1px solid var(--panel-border);
+  color: var(--panel-muted-text, var(--panel-text));
+  opacity: 0.7;
+  font-size: 11px;
 }
