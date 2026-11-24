@@ -1,132 +1,234 @@
 import { describe, expect, it } from 'vitest';
-import type { ClassDiagramArtifact, ClassDiagramNode, UseCaseFlowContent, UseCaseFlowStep } from '../types/diagram';
-import { buildProjectSymbolIndex } from './projectSymbolIndex';
-import { buildFlowDocument } from './flowDocument';
-import { buildFlowDocumentXml } from './flowExportDocx';
+import type { ClassDiagramArtifact, ClassDiagramNode, UseCaseFlowContent } from '../types/diagram';
+import { buildProjectSymbolIndex, checkClassNavigability } from './projectSymbolIndex';
+import {
+  createAlternativeFlow,
+  createEmptyUseCaseFlowContent,
+  createFlowActionNode,
+  createFlowDetailItem,
+  createFlowLoopNode,
+  createFlowMainStep,
+} from './useCaseFlowModel';
 import { reviewUseCaseFlow } from './useCaseFlowReview';
 
-const row = (id: string, actor: string, system: string, ref = ''): UseCaseFlowStep => ({ id, actor, system, ref });
-
-const content = (patch: Partial<UseCaseFlowContent>): UseCaseFlowContent => ({
-  description: {
-    useCaseNumber: '3', useCaseName: 'Actualizar Trámite', actor: 'Consultor', description: '', priority: 'A',
-    inputParameters: '', precondition: '', postcondition: '', initialState: '', finalState: '',
+const makeNode = (id: string, name: string, attrs: string[] = []): ClassDiagramNode => ({
+  id,
+  type: 'classNode',
+  position: { x: 0, y: 0 },
+  data: {
+    name,
+    attributes: attrs.map((a, i) => ({ id: `${id}-a${i}`, name: a, type: 'String' })),
+    methods: [],
   },
-  basicFlow: [],
-  alternativeFlows: [],
-  ...patch,
 });
 
-const symbols = {
-  classes: [
-    { name: 'Tramite', attributes: [{ name: 'nroTramite', type: 'int' }], methods: [], parametricValues: [], relatedClasses: [] },
-  ],
-};
-
-describe('reviewUseCaseFlow', () => {
-  it('reports missing steps, blocks without children and unknown classes', () => {
-    const issues = reviewUseCaseFlow(content({
-      basicFlow: [
-        row('a', '1. Ingresar número', ''),
-        row('b', '', [
-          '2. Buscar instancia de Tramitte con:',
-          '3. SI no existe',
-          '4. SINO',
-          '5. Volver al paso 9',
-        ].join('\n')),
-      ],
-    }), symbols);
-    const messages = issues.map((issue) => issue.message).join('\n');
-
-    expect(messages).toContain('paso 9');
-    expect(messages).toContain('«Tramitte»');
-    expect(messages).toContain('El SI del paso 3');
-  });
-
-  it('flags a path nobody references, without name and without an ending', () => {
-    const issues = reviewUseCaseFlow(content({
-      basicFlow: [row('a', '1. Ingresar', '2. Mostrar')],
-      alternativeFlows: [{ id: 'p', code: 'CA 1', name: '', steps: [row('x', '', '3. Mostrar mensaje')] }],
-    }), symbols);
-    const ids = issues.map((issue) => issue.id);
-
-    expect(ids).toContain('orphan:p');
-    expect(ids).toContain('unnamed:p');
-    expect(ids).toContain('end:CA 1');
-  });
-
-  it('is quiet for a consistent flow', () => {
-    const issues = reviewUseCaseFlow(content({
-      basicFlow: [row('a', '1. Ingresar', '2. Buscar instancia de Tramite con:\n        - nroTramite igual a número [CA 1]')],
-      alternativeFlows: [{ id: 'p', code: 'CA 1', name: 'No existe', steps: [row('x', '', '3. Retornar a paso 1 del camino básico')] }],
-    }), symbols);
-
-    expect(issues).toEqual([]);
-  });
+const makeDiagram = (): ClassDiagramArtifact => ({
+  id: 'dc',
+  type: 'class-diagram',
+  name: 'Dominio',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+  content: {
+    nodes: [
+      makeNode('persona', 'Persona', ['nombre']),
+      makeNode('socio', 'Socio', ['numeroSocio']),
+      makeNode('socioEstado', 'SocioEstado', ['fechaFinalSocioEstado']),
+      makeNode('estadoSocio', 'EstadoSocio', ['nombreEstadoSocio']),
+      makeNode('cuota', 'Cuota', ['monto']),
+    ],
+    edges: [
+      { id: 'g1', source: 'socio', target: 'persona', type: 'association', data: { relationType: 'generalization', name: '', sourceMultiplicity: '', targetMultiplicity: '', sourceRole: '', targetRole: '', navigability: 'none' } },
+      { id: 'e1', source: 'socio', target: 'socioEstado', type: 'association', data: { relationType: 'association', name: '', sourceMultiplicity: '1', targetMultiplicity: '1..*', sourceRole: '', targetRole: '', navigability: 'source-to-target' } },
+      { id: 'e2', source: 'socioEstado', target: 'estadoSocio', type: 'association', data: { relationType: 'association', name: '', sourceMultiplicity: '*', targetMultiplicity: '1', sourceRole: '', targetRole: '', navigability: 'source-to-target' } },
+      { id: 'e3', source: 'socio', target: 'cuota', type: 'association', data: { relationType: 'association', name: '', sourceMultiplicity: '1', targetMultiplicity: '*', sourceRole: '', targetRole: '', navigability: 'none' } },
+    ],
+  },
 });
 
-describe('buildFlowDocumentXml', () => {
-  it.each(['Fin del caso de uso', 'Finalizar el caso de uso', 'Fin de CU', 'Fin CU'])('accepts «%s» as the end of a path (D5)', (ending) => {
-    const issues = reviewUseCaseFlow(content({
-      basicFlow: [row('a', '1. Ingresar [CA 1]', '2. Mostrar')],
-      alternativeFlows: [{ id: 'p', code: 'CA 1', name: 'Cancela', steps: [row('x', '', `3. ${ending}`)] }],
-    }), symbols);
+describe('projectSymbolIndex navigability & inheritance', () => {
+  it('computes directed navigability and inherits superclass attributes', () => {
+    const idx = buildProjectSymbolIndex(makeDiagram());
+    const socio = idx.classes.find((c) => c.name === 'Socio');
+    expect(socio?.attributes.map((a) => a.name)).toEqual(['numeroSocio', 'nombre']);
 
-    expect(issues.map((issue) => issue.id)).not.toContain('end:CA 1');
-  });
-
-  it('knows the attributes a class inherits (D4)', () => {
-    const node = (id: string, name: string, attribute: string): ClassDiagramNode => ({
-      id, type: 'classNode', position: { x: 0, y: 0 },
-      data: { name, attributes: attribute ? [{ id: `${id}-a`, name: attribute, type: 'string', visibility: 'private' }] : [], methods: [] },
-    } as unknown as ClassDiagramNode);
-    const diagram = {
-      id: 'd', type: 'class-diagram', name: 'Dominio', createdAt: 'now', updatedAt: 'now',
-      content: {
-        nodes: [node('persona', 'Persona', 'nombre'), node('alumno', 'Alumno', 'legajo')],
-        edges: [{ id: 'g', source: 'alumno', target: 'persona', type: 'association', data: { relationType: 'generalization' } }],
-      },
-    } as unknown as ClassDiagramArtifact;
-    const index = buildProjectSymbolIndex(diagram);
-    const alumno = index.classes.find((entry) => entry.name === 'Alumno');
-
-    expect(alumno?.attributes.map((attribute) => attribute.name)).toEqual(['legajo', 'nombre']);
-    const issues = reviewUseCaseFlow(content({
-      basicFlow: [row('a', '1. Ingresar', '2. Buscar instancia de Alumno con:\n        - nombre igual a Ana')],
-    }), index);
-    expect(issues.map((issue) => issue.message).join('\n')).not.toContain('nombre');
+    expect(checkClassNavigability(idx, 'Socio', 'SocioEstado')).toBe('navigable');
+    expect(checkClassNavigability(idx, 'SocioEstado', 'Socio')).toBe('reverse-only');
+    expect(checkClassNavigability(idx, 'Socio', 'Cuota')).toBe('unspecified');
+    expect(checkClassNavigability(idx, 'Socio', 'EstadoSocio')).toBe('no-relation');
   });
 
   it('does not loop on an inheritance cycle', () => {
-    const node = (id: string, name: string): ClassDiagramNode => ({
-      id, type: 'classNode', position: { x: 0, y: 0 }, data: { name, attributes: [], methods: [] },
-    } as unknown as ClassDiagramNode);
-    const diagram = {
-      id: 'd', type: 'class-diagram', name: 'Dominio', createdAt: 'now', updatedAt: 'now',
+    const diagram: ClassDiagramArtifact = {
+      id: 'd',
+      type: 'class-diagram',
+      name: 'Ciclo',
+      createdAt: 'now',
+      updatedAt: 'now',
       content: {
-        nodes: [node('a', 'A'), node('b', 'B')],
+        nodes: [makeNode('a', 'A'), makeNode('b', 'B')],
         edges: [
-          { id: 'g1', source: 'a', target: 'b', type: 'association', data: { relationType: 'generalization' } },
-          { id: 'g2', source: 'b', target: 'a', type: 'association', data: { relationType: 'generalization' } },
+          { id: 'g1', source: 'a', target: 'b', type: 'association', data: { relationType: 'generalization', name: '', sourceMultiplicity: '', targetMultiplicity: '', sourceRole: '', targetRole: '', navigability: 'none' } },
+          { id: 'g2', source: 'b', target: 'a', type: 'association', data: { relationType: 'generalization', name: '', sourceMultiplicity: '', targetMultiplicity: '', sourceRole: '', targetRole: '', navigability: 'none' } },
         ],
       },
-    } as unknown as ClassDiagramArtifact;
-
+    };
     expect(buildProjectSymbolIndex(diagram).classes).toHaveLength(2);
   });
+});
 
-  it('writes the description, the flow tables and the path reference column', () => {
-    const flow = content({
-      basicFlow: [row('a', '1. Ingresar', '2. Validar datos [CA 1]')],
-      alternativeFlows: [{ id: 'p', code: 'CA 1', name: 'Datos inconsistentes', steps: [row('x', '', '3. Retornar a paso 1 del camino básico')] }],
-    });
-    const xml = buildFlowDocumentXml(buildFlowDocument(flow, 'Actualizar Trámite', symbols));
+describe('reviewUseCaseFlow (reglas de cátedra UTN FRM)', () => {
+  const symbols = buildProjectSymbolIndex(makeDiagram());
 
-    expect(xml).toContain('Nombre Caso de Uso');
-    expect(xml).toContain('CAMINO BÁSICO');
-    expect(xml).toContain('CAMINO ALTERNO N° 1 : Datos inconsistentes');
-    expect(xml).toContain('C.A N°1');
-    expect(xml).toContain('w:orient="landscape"');
-    expect(xml).not.toContain('[CA 1]');
+  it('flags Leer without navigability (reverse, unspecified, or no relation)', () => {
+    const flow: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [
+        createFlowMainStep('actor', 'Iniciar CU', { primitive: 'iniciar-cu' }),
+        createFlowMainStep('system', 'Verificar', {
+          children: [
+            createFlowActionNode('leer', 'Leer instancia de Socio relacionada a SocioEstado', { id: 'rev' }),
+            createFlowActionNode('leer', 'Leer instancias de Cuota relacionadas a Socio', { id: 'unspec' }),
+            createFlowActionNode('leer', 'Leer instancia de EstadoSocio relacionada a Socio', { id: 'norel' }),
+          ],
+        }),
+        createFlowMainStep('system', 'Fin CU', { primitive: 'fin-cu' }),
+      ],
+    };
+
+    const issues = reviewUseCaseFlow(flow, symbols);
+    expect(issues.find((i) => i.id === 'nav-reverse:rev')?.kind).toBe('error');
+    expect(issues.find((i) => i.id === 'nav-none:unspec')?.kind).toBe('review');
+    expect(issues.find((i) => i.id === 'nav-missing:norel')?.kind).toBe('error');
+  });
+
+  it('requires Guardar Cambios for Crear/Modificar on DC entities but NOT on pseudoentities', () => {
+    const withDomainCreate: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [
+        createFlowMainStep('actor', 'Iniciar CU', { primitive: 'iniciar-cu' }),
+        createFlowMainStep('system', 'Crear estado', {
+          children: [createFlowActionNode('crear', 'Crear instancia de SocioEstado:', { semantic: { targetClass: 'SocioEstado' } })],
+        }),
+        createFlowMainStep('system', 'Fin CU', { primitive: 'fin-cu' }),
+      ],
+    };
+    expect(reviewUseCaseFlow(withDomainCreate, symbols).some((i) => i.id === 'missing-save:basic')).toBe(true);
+
+    const withPseudoOnly: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [
+        createFlowMainStep('actor', 'Iniciar CU', { primitive: 'iniciar-cu' }),
+        createFlowMainStep('system', 'Armar DTO', {
+          children: [
+            createFlowActionNode('definir-pseudoentidad', 'Definir pseudoentidad DTOResumen (nro, nombre)'),
+            createFlowActionNode('crear', 'Crear instancia de DTOResumen:', {
+              details: [createFlowDetailItem('Con nro igual a 1')],
+            }),
+          ],
+        }),
+        createFlowMainStep('system', 'Fin CU', { primitive: 'fin-cu' }),
+      ],
+    };
+    const pseudoIssues = reviewUseCaseFlow(withPseudoOnly, symbols);
+    expect(pseudoIssues.some((i) => i.id === 'missing-save:basic')).toBe(false);
+    expect(pseudoIssues.some((i) => i.id === 'class:DTOResumen')).toBe(false);
+  });
+
+  it('checks missing/orphan CAs, CA endings, unknown classes/attributes, and ignores GUI-N refs', () => {
+    const flow: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [
+        createFlowMainStep('actor', 'Iniciar CU', {
+          primitive: 'iniciar-cu',
+          refs: [{ id: 'g1', kind: 'gui', label: 'GUI-1' }],
+        }),
+        createFlowMainStep('system', 'Buscar', {
+          children: [
+            createFlowActionNode('buscar', 'Buscar instancia de Socioo con:', {
+              id: 'b1',
+              refs: [{ id: 'm1', kind: 'ca-missing', code: 'CA 9' }],
+            }),
+            createFlowActionNode('buscar', 'Buscar instancia de Socio con:', {
+              id: 'b2',
+              details: [createFlowDetailItem('Con atributoInventado igual a 1')],
+            }),
+          ],
+        }),
+        createFlowMainStep('system', 'Fin CU', { primitive: 'fin-cu' }),
+      ],
+      alternativeFlows: [
+        {
+          ...createAlternativeFlow(1, ''),
+          id: 'orphan-ca',
+          steps: [createFlowMainStep('system', 'Mostrar mensaje sin cierre')],
+        },
+      ],
+    };
+
+    const issues = reviewUseCaseFlow(flow, symbols);
+    const ids = issues.map((i) => i.id);
+    expect(ids).toContain('ref-ca-missing:b1:m1');
+    expect(ids).toContain('class:Socioo');
+    expect(ids).toContain('orphan:orphan-ca');
+    expect(ids).toContain('unnamed:orphan-ca');
+    expect(ids).toContain('alt-end:orphan-ca');
+    expect(issues.some((i) => i.message.includes('GUI-1'))).toBe(false);
+    expect(issues.some((i) => i.message.includes('atributoInventado'))).toBe(true);
+  });
+
+  it('passes cleanly with zero issues for a well-formed UTN FRM flow', () => {
+    const loop = createFlowLoopNode('por-cada', 'Por cada instancia de SocioEstado:');
+    loop.targetClass = 'SocioEstado';
+    loop.children = [];
+    loop.details = [createFlowDetailItem('Leer fechaFinalSocioEstado')];
+
+    const flow: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [
+        createFlowMainStep('actor', 'Iniciar CU', {
+          id: 's1',
+          primitive: 'iniciar-cu',
+          refs: [{ id: 'r-gui', kind: 'gui', label: 'GUI-1' }],
+        }),
+        createFlowMainStep('system', 'Solicitar socio', {
+          id: 's2',
+          children: [createFlowActionNode('mostrar-mensaje', 'Mostrar mensaje “Ingrese número de socio”')],
+        }),
+        createFlowMainStep('actor', 'Ingresar número de socio (nsocio)', { id: 's3', primitive: 'ingresar' }),
+        createFlowMainStep('system', 'Verificar socio', {
+          id: 's4',
+          children: [
+            createFlowActionNode('controlar-consistencia', 'Controlar consistencia de datos ingresados', {
+              refs: [{ id: 'rc1', kind: 'ca', flowId: 'ca1' }],
+            }),
+            createFlowActionNode('buscar', 'Buscar instancia de Socio:', {
+              details: [createFlowDetailItem('Con numeroSocio igual a nsocio')],
+              refs: [{ id: 'rc2', kind: 'ca', flowId: 'ca2' }],
+            }),
+            createFlowActionNode('leer', 'Leer instancias de SocioEstado relacionadas a Socio'),
+            loop,
+            createFlowActionNode('leer', 'Leer instancia de EstadoSocio relacionada a SocioEstado'),
+            createFlowActionNode('leer', 'Leer nombreEstadoSocio de EstadoSocio'),
+          ],
+        }),
+        createFlowMainStep('system', 'Fin CU', { id: 's5', primitive: 'fin-cu' }),
+      ],
+      alternativeFlows: [
+        {
+          id: 'ca1',
+          number: 1,
+          title: 'Datos inconsistentes',
+          steps: [createFlowMainStep('system', 'Ir a paso 2 de camino principal', { primitive: 'ir-a-paso', jumpTarget: { flowId: 'basic', stepId: 's2' } })],
+        },
+        {
+          id: 'ca2',
+          number: 2,
+          title: 'Socio inexistente',
+          steps: [createFlowMainStep('system', 'Fin CU', { primitive: 'fin-cu' })],
+        },
+      ],
+    };
+
+    expect(reviewUseCaseFlow(flow, symbols)).toEqual([]);
   });
 });

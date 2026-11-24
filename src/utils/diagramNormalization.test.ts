@@ -63,15 +63,15 @@ describe('diagram normalization', () => {
     const partial = {
       description: { useCaseName: 'Tomar Caso', priority: 'C' },
       basicFlow: [{ actor: '1. Iniciar CU' }],
-    } as Partial<UseCaseFlowContent>;
+    } as unknown as Partial<UseCaseFlowContent>;
 
     const normalized = normalizeUseCaseFlowContent(partial);
 
+    expect(normalized.version).toBe(2);
     expect(normalized.description.useCaseName).toBe('Tomar Caso');
     expect(normalized.description.priority).toBe('C');
-    expect(normalized.description.finalState).toBe('');
-    expect(normalized.basicFlow[0].actor).toBe('1. Iniciar CU');
-    expect(normalized.basicFlow[0].system).toBe('');
+    expect(normalized.description.finalState).toEqual([]);
+    expect(normalized.basicFlow[0]).toMatchObject({ speaker: 'actor', title: 'Iniciar CU' });
   });
 
   it('keeps sequence diagram artifacts when importing a project', () => {

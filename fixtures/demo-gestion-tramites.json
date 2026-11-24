@@ -363,44 +363,301 @@
    "createdAt": "2026-09-20T12:00:00.000Z",
    "updatedAt": "2026-09-20T12:00:00.000Z",
    "content": {
+    "version": 2,
     "classDiagramArtifactId": "cd",
     "description": {
      "useCaseNumber": "3",
      "useCaseName": "Registrar cambio de estado de trámite",
      "actor": "Consultor",
-     "description": "El consultor actualiza el estado de los trámites que tiene asignados.",
+     "description": "El consultor selecciona uno de los trámites asignados y registra el paso al nuevo estado, cerrando el estado vigente.",
      "priority": "A",
-     "inputParameters": "VcodConsultor, VnroTramite, acción (Confirmar-Rechazar)",
-     "precondition": "El consultor inició sesión en el sistema.",
-     "postcondition": "El trámite queda en el nuevo estado.",
-     "initialState": "Instancia de Consultor con:\n• fechaHoraBaja igual a vacío",
-     "finalState": "Si confirma...\nInstancia de EstadoTramite creada con:\n• fechaHoraDesde igual a fecha actual"
+     "inputParameters": [
+      { "id": "ip1", "name": "pNroTramite" },
+      { "id": "ip2", "name": "pNombreEstado" }
+     ],
+     "precondition": "Consultor instanciado (CU Loguear Usuario)",
+     "initialState": [
+      {
+       "id": "is-consultor",
+       "kind": "instance",
+       "multiplicity": "single",
+       "className": "Consultor",
+       "qualifier": "existente",
+       "details": [
+        { "id": "is-c1", "kind": "attribute", "attribute": "fechaHoraBaja", "comparator": "igual a", "value": "vacío" }
+       ]
+      },
+      {
+       "id": "is-tramite",
+       "kind": "instance",
+       "multiplicity": "single",
+       "className": "Tramite",
+       "qualifier": "existente",
+       "details": [
+        { "id": "is-t1", "kind": "relation", "multiplicity": "single", "className": "Consultor", "children": [] },
+        {
+         "id": "is-t2",
+         "kind": "relation",
+         "multiplicity": "single",
+         "className": "EstadoTramite",
+         "children": [
+          { "id": "is-et1", "kind": "attribute", "attribute": "fechaHoraHasta", "comparator": "igual a", "value": "vacío" }
+         ]
+        }
+       ]
+      },
+      {
+       "id": "is-estado",
+       "kind": "instance",
+       "multiplicity": "single",
+       "className": "Estado",
+       "qualifier": "existente",
+       "details": [
+        { "id": "is-e1", "kind": "attribute", "attribute": "nombre", "comparator": "igual a", "value": "pNombreEstado" }
+       ]
+      }
+     ],
+     "finalState": [
+      {
+       "id": "fs-et-mod",
+       "kind": "instance",
+       "multiplicity": "single",
+       "className": "EstadoTramite",
+       "qualifier": "modificada",
+       "details": [
+        { "id": "fs-et-m1", "kind": "attribute", "attribute": "fechaHoraHasta", "comparator": "igual a", "value": "fecha actual" }
+       ]
+      },
+      {
+       "id": "fs-et-new",
+       "kind": "instance",
+       "multiplicity": "single",
+       "className": "EstadoTramite",
+       "qualifier": "creada",
+       "details": [
+        { "id": "fs-et-n1", "kind": "attribute", "attribute": "fechaHoraDesde", "comparator": "igual a", "value": "fecha actual" },
+        { "id": "fs-et-n2", "kind": "attribute", "attribute": "fechaHoraHasta", "comparator": "igual a", "value": "vacío" },
+        { "id": "fs-et-n3", "kind": "relation", "multiplicity": "single", "className": "Estado", "children": [] }
+       ]
+      }
+     ]
     },
     "basicFlow": [
      {
       "id": "b1",
-      "actor": "1. El consultor selecciona la opción Cambiar estado de trámite.",
-      "system": "2. El sistema busca los trámites asignados al consultor con estado actual vigente y los muestra. [CA 1]",
-      "ref": ""
+      "speaker": "actor",
+      "primitive": "iniciar-cu",
+      "title": "Iniciar CU",
+      "refs": [{ "id": "ref-gui1", "kind": "gui", "label": "GUI-1" }],
+      "children": []
      },
      {
       "id": "b2",
-      "actor": "3. El consultor selecciona un trámite y el nuevo estado.",
-      "system": "4. El sistema registra el cambio de estado y cierra el estado anterior.",
-      "ref": ""
+      "speaker": "system",
+      "title": "Obtener trámites asignados al consultor",
+      "refs": [],
+      "children": [
+       {
+        "id": "b2-1",
+        "kind": "action",
+        "primitive": "buscar",
+        "text": "Buscar instancias de Tramite con:",
+        "semantic": { "targetClass": "Tramite" },
+        "details": [
+         { "id": "b2-1-d1", "text": "Relacionada a instancia de Consultor" }
+        ],
+        "refs": [{ "id": "ref-ca1", "kind": "ca", "flowId": "alt1" }]
+       },
+       {
+        "id": "b2-2",
+        "kind": "loop",
+        "loopKind": "por-cada",
+        "header": "Por cada instancia de Tramite encontrada:",
+        "targetClass": "Tramite",
+        "details": [],
+        "children": [
+         {
+          "id": "b2-2-1",
+          "kind": "action",
+          "primitive": "leer",
+          "text": "Leer instancias de EstadoTramite relacionadas a Tramite",
+          "semantic": { "sourceClass": "Tramite", "targetClass": "EstadoTramite" },
+          "details": [],
+          "refs": []
+         },
+         {
+          "id": "b2-2-2",
+          "kind": "action",
+          "primitive": "seleccionar",
+          "text": "Seleccionar instancia de EstadoTramite con fechaHoraHasta igual a vacío",
+          "semantic": { "targetClass": "EstadoTramite" },
+          "details": [],
+          "refs": []
+         },
+         {
+          "id": "b2-2-3",
+          "kind": "action",
+          "primitive": "leer",
+          "text": "Leer instancia de Estado relacionada a EstadoTramite",
+          "semantic": { "sourceClass": "EstadoTramite", "targetClass": "Estado" },
+          "details": [],
+          "refs": []
+         },
+         {
+          "id": "b2-2-4",
+          "kind": "action",
+          "primitive": "leer",
+          "text": "Leer nombre de Estado",
+          "semantic": { "sourceClass": "Estado", "attribute": "nombre" },
+          "details": [],
+          "refs": []
+         }
+        ],
+        "refs": []
+       },
+       {
+        "id": "b2-3",
+        "kind": "action",
+        "primitive": "mostrar-mensaje",
+        "text": "Mostrar mensaje “Seleccione el trámite y el nuevo estado” con:",
+        "details": [
+         { "id": "b2-3-d1", "text": "nroTramite de Tramite" },
+         { "id": "b2-3-d2", "text": "nombre de Estado" }
+        ],
+        "refs": []
+       }
+      ]
+     },
+     {
+      "id": "b3",
+      "speaker": "actor",
+      "primitive": "seleccionar",
+      "title": "Seleccionar trámite y nuevo estado (pNroTramite, pNombreEstado)",
+      "refs": [],
+      "children": []
+     },
+     {
+      "id": "b4",
+      "speaker": "system",
+      "title": "Registrar cambio de estado",
+      "refs": [],
+      "children": [
+       {
+        "id": "b4-1",
+        "kind": "action",
+        "primitive": "buscar",
+        "text": "Buscar instancia de Estado con:",
+        "semantic": { "targetClass": "Estado" },
+        "details": [
+         { "id": "b4-1-d1", "text": "Con nombre igual a pNombreEstado" }
+        ],
+        "refs": [{ "id": "ref-ca2", "kind": "ca", "flowId": "alt2" }]
+       },
+       {
+        "id": "b4-2",
+        "kind": "action",
+        "primitive": "modificar",
+        "text": "Modificar instancia de EstadoTramite",
+        "semantic": { "targetClass": "EstadoTramite" },
+        "stepRef": { "flowId": "basic", "stepId": "b2-2-2" },
+        "details": [
+         { "id": "b4-2-d1", "text": "Con fechaHoraHasta igual a fecha_actual()" }
+        ],
+        "refs": []
+       },
+       {
+        "id": "b4-3",
+        "kind": "action",
+        "primitive": "crear",
+        "text": "Crear instancia de EstadoTramite:",
+        "semantic": { "targetClass": "EstadoTramite" },
+        "details": [
+         { "id": "b4-3-d1", "text": "Con fechaHoraDesde igual a fecha_actual()" },
+         { "id": "b4-3-d2", "text": "Con fechaHoraHasta igual a vacío" },
+         { "id": "b4-3-d3", "text": "Relacionada a instancia de Estado", "stepRef": { "flowId": "basic", "stepId": "b4-1" } }
+        ],
+        "refs": []
+       }
+      ]
+     },
+     {
+      "id": "b5",
+      "speaker": "system",
+      "primitive": "guardar-cambios",
+      "title": "Guardar Cambios",
+      "refs": [],
+      "children": []
+     },
+     {
+      "id": "b6",
+      "speaker": "system",
+      "primitive": "fin-cu",
+      "title": "Fin CU",
+      "refs": [],
+      "children": []
      }
     ],
     "alternativeFlows": [
      {
       "id": "alt1",
-      "code": "CA 1",
-      "name": "No hay trámites para el consultor",
+      "number": 1,
+      "title": "No existen trámites asignados al consultor",
       "steps": [
        {
         "id": "x1",
-        "actor": "",
-        "system": "3. El sistema informa que no hay trámites para el consultor.\n4. Fin CU.",
-        "ref": ""
+        "speaker": "system",
+        "title": "Informar ausencia de trámites",
+        "refs": [],
+        "children": [
+         {
+          "id": "x1-1",
+          "kind": "action",
+          "primitive": "mostrar-mensaje",
+          "text": "Mostrar mensaje “No hay trámites asignados para el consultor”",
+          "details": [],
+          "refs": []
+         }
+        ]
+       },
+       {
+        "id": "x2",
+        "speaker": "system",
+        "primitive": "fin-cu",
+        "title": "Fin CU",
+        "refs": [],
+        "children": []
+       }
+      ]
+     },
+     {
+      "id": "alt2",
+      "number": 2,
+      "title": "No existe el estado destino seleccionado",
+      "steps": [
+       {
+        "id": "y1",
+        "speaker": "system",
+        "title": "Informar estado inexistente",
+        "refs": [],
+        "children": [
+         {
+          "id": "y1-1",
+          "kind": "action",
+          "primitive": "mostrar-mensaje",
+          "text": "Mostrar mensaje “El estado seleccionado no existe”",
+          "details": [],
+          "refs": []
+         }
+        ]
+       },
+       {
+        "id": "y2",
+        "speaker": "system",
+        "primitive": "ir-a-paso",
+        "title": "Ir a paso 2 de camino principal",
+        "jumpTarget": { "flowId": "basic", "stepId": "b2" },
+        "refs": [],
+        "children": []
        }
       ]
      }

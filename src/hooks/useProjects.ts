@@ -49,6 +49,7 @@ import { copyProject, sameProjectContent, type ProjectImportCounts } from '../ut
 import { saveBlob } from '../utils/saveFile';
 import { isNotebookEmpty } from '../utils/artifactNotebook';
 import { createEmptySequenceDiagramContent, normalizeSequenceDiagramContent } from '../utils/sequenceDiagram';
+import { createEmptyUseCaseFlowContent } from '../utils/useCaseFlowModel';
 import { importArtifactIntoProjects, moveArtifactsBetweenProjects, type ArtifactMoveResult } from '../utils/artifactTransfer';
 
 const createEmptyContent = (): ClassDiagramContent => ({
@@ -64,24 +65,6 @@ const cloneClassContent = (content: ClassDiagramContent): ClassDiagramContent =>
 const createEmptyUseCaseModelContent = (): UseCaseModelArtifact['content'] => ({
   nodes: [],
   edges: [],
-});
-
-const createEmptyUseCaseFlowContent = (): UseCaseFlowContent => ({
-  classDiagramArtifactId: undefined,
-  description: {
-    useCaseNumber: '',
-    useCaseName: '',
-    actor: '',
-    description: '',
-    priority: 'A',
-    inputParameters: '',
-    precondition: '',
-    postcondition: '',
-    initialState: '',
-    finalState: '',
-  },
-  basicFlow: [],
-  alternativeFlows: [],
 });
 
 const createClassSequenceContent = (

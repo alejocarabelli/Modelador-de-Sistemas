@@ -59,11 +59,11 @@ describe('Claude proposals', () => {
 
   it('repeats the operations on the current version, keeping edits made after Claude read it', () => {
     const [first, second] = flow.content.basicFlow;
-    const operations = [{ op: 'modificar', id: first.id, campos: { actor: 'Lo que propuso Claude.' } }];
+    const operations = [{ op: 'modificar', id: first.id, campos: { title: 'Lo que propuso Claude.' } }];
     const { file, text } = writeWithExtension({
       projectId: project.id, artifactId: flow.id, type: flow.type, name: flow.name, basedOnUpdatedAt: flow.updatedAt,
       description: 'Un paso.', operations,
-      content: { ...flow.content, basicFlow: flow.content.basicFlow.map((step) => (step.id === first.id ? { ...step, actor: 'Lo que propuso Claude.' } : step)) },
+      content: { ...flow.content, basicFlow: flow.content.basicFlow.map((step) => (step.id === first.id ? { ...step, title: 'Lo que propuso Claude.' } : step)) },
     });
     const proposal = parseClaudeProposal(file, text);
     expect((proposal as ClaudeProposal).operations).toEqual(operations);
@@ -72,14 +72,14 @@ describe('Claude proposals', () => {
     const editedFlow = {
       ...flow,
       updatedAt: '2030-01-01T00:00:00.000Z',
-      content: { ...flow.content, basicFlow: flow.content.basicFlow.map((step) => (step.id === second.id ? { ...step, system: 'Editado a mano.' } : step)) },
+      content: { ...flow.content, basicFlow: flow.content.basicFlow.map((step) => (step.id === second.id ? { ...step, title: 'Editado a mano.' } : step)) },
     };
     const edited = { ...project, artifacts: project.artifacts.map((a) => (a.id === flow.id ? editedFlow : a)) };
     const target = resolveProposalTarget(proposal, [edited]);
     expect(target).toMatchObject({ kind: 'replace', changedSinceRead: false });
     const steps = (target as { content: typeof flow.content }).content.basicFlow;
-    expect(steps.find((step) => step.id === first.id)?.actor).toBe('Lo que propuso Claude.');
-    expect(steps.find((step) => step.id === second.id)?.system).toBe('Editado a mano.');
+    expect(steps.find((step) => step.id === first.id)?.title).toBe('Lo que propuso Claude.');
+    expect(steps.find((step) => step.id === second.id)?.title).toBe('Editado a mano.');
 
     // Si borró el paso que Claude quería cambiar, las operaciones no encajan: se avisa que reemplaza.
     const withoutStep = { ...project, artifacts: project.artifacts.map((a) => (a.id === flow.id

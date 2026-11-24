@@ -6,8 +6,7 @@ import { reviewClassDiagram } from './classDiagramReview';
 import { buildProjectSymbolIndex } from './projectSymbolIndex';
 import { reviewUseCaseFlow } from './useCaseFlowReview';
 import { analyzeSequenceDiagramSemantics, collectSequenceReviewProblems } from './sequenceDiagram';
-import { findFlowBranch, getFirstStepNumber, parseFlowLine } from './flowDocument';
-import { normalizeUseCaseFlowContentNumbering } from './useCaseFlowNumbering';
+import { computeFlowNumbering } from './useCaseFlowModel';
 
 const artifactOfType = <T extends DesignArtifact['type']>(project: DiagramProject, type: T) =>
   project.artifacts.find((artifact): artifact is Extract<DesignArtifact, { type: T }> => artifact.type === type)!;
@@ -46,11 +45,11 @@ describe('createExampleProject', () => {
   it('branches at the system search and continues with consistent numbering', () => {
     const content = artifactOfType(createExampleProject(), 'use-case-flow').content;
     const alternative = content.alternativeFlows[0];
+    const numbering = computeFlowNumbering(content);
 
-    expect(findFlowBranch(content, alternative.code)).toMatchObject({ number: '2', tableCode: 'basic', field: 'system' });
-    expect(parseFlowLine(alternative.steps[0].system.split('\n')[0]).number)
-      .toBe(String(getFirstStepNumber(content, alternative)));
-    expect(normalizeUseCaseFlowContentNumbering(content)).toEqual(content);
+    expect(numbering.branchOriginByFlowId.get(alternative.id)).toMatchObject({ stepNumber: '2.1', flowId: 'basic', mainNumber: 2 });
+    expect(numbering.firstStepNumberByFlowId.get(alternative.id)).toBe(3);
+    expect(numbering.stepNumberById.get(alternative.steps[0].id)).toBe('3');
   });
 
   it('copies the five artifacts of the fixture under the example name', () => {

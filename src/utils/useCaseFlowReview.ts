@@ -1,245 +1,665 @@
-import type { UseCaseFlowContent, UseCaseFlowStep } from '../types/diagram';
-import type { FlowTextField } from '../types/useCaseFlowEditor';
+import type {
+  FlowActionNode,
+  FlowDetailItem,
+  FlowMainStep,
+  FlowRef,
+  FlowSubNode,
+  StateBlock,
+  StateDetailItem,
+  StateInstanceBlock,
+  UseCaseFlowContent,
+} from '../types/diagram';
 import {
-  findPseudoEntities,
-  flattenFlowRows,
-  normalizeFlowCode,
-  type FlowTableLine,
-} from './flowDocument';
-import type { ProjectSymbolIndex } from './projectSymbolIndex';
-import { shortcutLabel } from './shortcutLabel';
+  checkClassNavigability,
+  findSymbolClass,
+  type ProjectSymbolIndex,
+} from './projectSymbolIndex';
+import {
+  computeFlowNumbering,
+  extractPseudoEntities,
+  formatAlternativeRef,
+  inferActionSemantic,
+  normalizeLegacyFlowCode,
+} from './useCaseFlowModel';
 
 export type FlowIssueLocation =
-  | { kind: 'cell'; field: FlowTextField; lineIndex: number; stepId: string; table: 'basic' | string }
-  | { kind: 'state'; field: 'initialState' | 'finalState'; lineIndex: number }
-  | { kind: 'alternative'; table: string };
+  | { kind: 'description'; field: 'useCaseNumber' | 'useCaseName' | 'actor' | 'description' | 'inputParameters' | 'precondition' }
+  | { kind: 'state'; field: 'initialState' | 'finalState'; blockId: string; detailId?: string }
+  | { kind: 'step'; flowId: 'basic' | string; stepId: string; mainStepId: string }
+  | { kind: 'alternative'; flowId: string };
+
+export type FlowIssueCategory =
+  | 'navigabilidad'
+  | 'modelo-clases'
+  | 'referencias'
+  | 'persistencia-cierre'
+  | 'metodologia';
 
 export type FlowIssue = {
   id: string;
   kind: 'error' | 'review';
+  category: FlowIssueCategory;
   location?: FlowIssueLocation;
   message: string;
 };
 
-const identifier = '[A-Za-zÁÉÍÓÚÜÑáéíóúüñ_][\\wÁÉÍÓÚÜÑáéíóúüñ]*';
+const IDENT = '[A-Za-zÁÉÍÓÚÜÑáéíóúüñ_][\\wÁÉÍÓÚÜÑáéíóúüñ]*';
 
-const stepReferencePattern =
-  /\bpasos?\s+(?:N°\s*)?\[?(\d+(?:\.\d+)*)\]?(?:\s+(?:del?|de\s+la)\s+\[?(camino\s+b[aá]sico|C\.?\s?A\.?\s*(?:N°\s*)?\d+|camino\s+altern[oa]\s*(?:N°\s*)?\d+)\]?)?/gi;
+const MANUAL_STEP_REF_RE =
+  /\bpasos?\s+(?:N°\s*)?\[?(\d+(?:\.\d+)*)\]?(?:\s+(?:del?|de\s+la)\s+\[?(camino\s+(?:b[aá]sico|principal)|C\.?\s?A\.?\s*(?:N°\s*)?\d+|camino\s+altern(?:o|ativo)\s*(?:N°\s*)?\d+)\]?)?/gi;
 
-const classUsePattern = new RegExp(
-  `\\b(?:Buscar|Crear|Modificar|Leer(?:\\s+de)?|POR\\s+CADA|Relacionada\\s+a)\\s+(?:la\\s+)?(?:instancias?\\s+)(?:de\\s+)?(${identifier})`,
+const CLASS_MENTION_RE = new RegExp(
+  `\\b(?:Buscar|Crear|Modificar|Leer(?:\\s+de)?|Por\\s+cada|Relacionad[ao]s?\\s+a|Seleccionar)\\s+(?:la\\s+|las\\s+)?(?:instancias?|instancia\\/s)\\s+(?:de\\s+)?(${IDENT})`,
   'gi',
 );
 
-const contextPattern = new RegExp(`instancias?\\s+(?:de\\s+)?(${identifier})\\b[^\\n]*?:\\s*$`, 'i');
+const ATTR_BULLET_RE = new RegExp(
+  `^(?:Con\\s+)?(${IDENT})\\s+(?:igual\\s+a|distint[oa]\\s+(?:de|a)|menor|mayor|<=|>=|=|!=|<|>)`,
+  'i',
+);
 
-type Table = { code: string; label: string; rows: UseCaseFlowStep[]; tableId: 'basic' | string };
-
-const lineLabel = (lines: FlowTableLine[], index: number): string => {
-  for (let current = index; current >= 0; current -= 1) {
-    if (lines[current].number !== undefined) {
-      return `paso ${lines[current].number}`;
-    }
-  }
-  return 'primer paso';
-};
+const isEndingText = (text: string): boolean =>
+  /^(?:Ir|Retornar|Volver)\s+a(?:l)?\s+paso\b|^Fin(?:alizar)?\s+(?:(?:del?|el)\s+)?(?:CU|caso\s+de\s+uso)\b/i.test(text.trim());
 
 /**
- * Checks a teacher would mark on a written flow. They read the text only; a
- * clean result does not mean the flow is correct, just that it is consistent.
+ * Validaciones de cátedra (UTN FRM — Diseño de Sistemas).
+ * Panel no bloqueante: señala errores de consistencia con el DC (incluyendo navegabilidad
+ * en `Leer`), integridad de CAs/pasos, `Guardar Cambios`, cierre de CAs y reglas metodológicas.
  */
-export const reviewUseCaseFlow = (content: UseCaseFlowContent, symbolIndex: ProjectSymbolIndex): FlowIssue[] => {
+export const reviewUseCaseFlow = (
+  content: UseCaseFlowContent,
+  symbolIndex: ProjectSymbolIndex,
+): FlowIssue[] => {
   const issues: FlowIssue[] = [];
-  const tables: Table[] = [
-    { code: 'basic', label: 'Camino básico', rows: content.basicFlow, tableId: 'basic' },
-    ...content.alternativeFlows.map((flow) => ({
-      code: normalizeFlowCode(flow.code),
-      label: flow.code,
-      rows: flow.steps,
-      tableId: flow.id,
-    })),
-  ];
-  const linesByTable = new Map(tables.map((table) => [table.code, flattenFlowRows(table.rows)]));
-  const numbersByTable = new Map(
-    tables.map((table) => [table.code, new Set((linesByTable.get(table.code) ?? []).flatMap((line) => (line.number === undefined ? [] : [line.number])))]),
-  );
-  const pathCodes = new Set(content.alternativeFlows.map((flow) => normalizeFlowCode(flow.code)));
-  const referencedPaths = new Set<string>();
-  const allText = tables.flatMap((table) => table.rows.flatMap((row) => [row.actor, row.system]));
-  const pseudoEntities = new Set(findPseudoEntities(allText).map((entity) => entity.name));
-  const classes = new Map(symbolIndex.classes.map((symbolClass) => [symbolClass.name, symbolClass]));
-  const checkClasses = symbolIndex.classes.length > 0;
-  const reportedClasses = new Set<string>();
+  const numbering = computeFlowNumbering(content);
+  const pseudoEntities = extractPseudoEntities(content);
+  const pseudoByName = new Map(pseudoEntities.map((entity) => [entity.name, entity]));
+  const hasLinkedClasses = symbolIndex.classes.length > 0;
+  const reportedMissingClasses = new Set<string>();
 
-  const checkClassName = (name: string, location: FlowIssueLocation, where: string): void => {
-    if (!checkClasses || classes.has(name) || pseudoEntities.has(name) || !/^[A-ZÁÉÍÓÚÜÑ]/.test(name) || reportedClasses.has(name)) {
-      return;
-    }
-    reportedClasses.add(name);
+  const altById = new Map(content.alternativeFlows.map((alt) => [alt.id, alt]));
+  const altByCode = new Map(content.alternativeFlows.map((alt) => [`CA ${alt.number}`, alt]));
+  const referencedAltIds = new Set<string>();
+
+  const numbersByFlowId = new Map<string, Set<string>>();
+  numbering.entriesByFlowId.forEach((entries, flowId) => {
+    numbersByFlowId.set(flowId, new Set(entries.map((entry) => entry.number)));
+  });
+
+  const flowLabel = (flowId: 'basic' | string): string => {
+    if (flowId === 'basic') return 'del camino básico';
+    const alt = altById.get(flowId);
+    return alt ? `de ${formatAlternativeRef(alt.number)}` : 'del camino alternativo';
+  };
+
+  const stepWhere = (flowId: 'basic' | string, stepId: string): string => {
+    const num = numbering.stepNumberById.get(stepId);
+    return `paso ${num ?? '?'} ${flowLabel(flowId)}`;
+  };
+
+  const checkClassExists = (name: string, location: FlowIssueLocation, where: string): void => {
+    const trimmed = name.trim();
+    if (!hasLinkedClasses || !trimmed || !/^[A-ZÁÉÍÓÚÜÑ]/.test(trimmed)) return;
+    if (findSymbolClass(symbolIndex, trimmed) || pseudoByName.has(trimmed)) return;
+    const key = `${trimmed}`;
+    if (reportedMissingClasses.has(key)) return;
+    reportedMissingClasses.add(key);
     issues.push({
-      id: `class:${name}`,
+      id: `class:${trimmed}`,
       kind: 'review',
+      category: 'modelo-clases',
       location,
-      message: `«${name}» (${where}) no es una clase del diagrama asociado. Revisá el nombre o agregala al diagrama.`,
+      message: `«${trimmed}» (${where}) no existe en el Diagrama de Clases vinculado ni fue declarada con «Definir pseudoentidad».`,
     });
   };
 
-  tables.forEach((table) => {
-    const lines = linesByTable.get(table.code) ?? [];
+  const checkAttributeExists = (
+    ownerClassName: string | undefined,
+    attributeName: string,
+    location: FlowIssueLocation,
+    where: string,
+    idSuffix: string,
+  ): void => {
+    const attr = attributeName.trim();
+    if (!hasLinkedClasses || !ownerClassName || !attr) return;
+    const pseudo = pseudoByName.get(ownerClassName);
+    if (pseudo) {
+      if (pseudo.fields.length > 0 && !pseudo.fields.includes(attr)) {
+        issues.push({
+          id: `pseudo-attr:${idSuffix}:${attr}`,
+          kind: 'review',
+          category: 'modelo-clases',
+          location,
+          message: `«${attr}» no fue declarado en la pseudoentidad ${pseudo.name} (${where}).`,
+        });
+      }
+      return;
+    }
+    const cls = findSymbolClass(symbolIndex, ownerClassName);
+    if (!cls) return;
+    if (!cls.attributes.some((candidate) => candidate.name === attr)) {
+      issues.push({
+        id: `attr:${idSuffix}:${cls.name}:${attr}`,
+        kind: 'review',
+        category: 'modelo-clases',
+        location,
+        message: `«${attr}» no es un atributo de ${cls.name} en el DC vinculado (${where}).`,
+      });
+    }
+  };
 
-    lines.forEach((line, index) => {
-      const location: FlowIssueLocation = {
-        kind: 'cell',
-        table: table.tableId,
-        stepId: line.stepId,
-        field: line.field,
-        lineIndex: line.lineIndex,
-      };
-      const where = `${lineLabel(lines, index)} ${table.tableId === 'basic' ? 'del camino básico' : `de ${table.code}`}`;
-      const body = line.body.trim();
+  const checkRefs = (refs: FlowRef[], flowId: 'basic' | string, stepId: string, mainStepId: string): void => {
+    const location: FlowIssueLocation = { kind: 'step', flowId, stepId, mainStepId };
+    const where = stepWhere(flowId, stepId);
 
-      // Step references.
-      for (const match of line.body.matchAll(stepReferencePattern)) {
-        const qualifier = match[2];
-        const target = qualifier === undefined
-          ? table.code
-          : /b[aá]sico/i.test(qualifier) ? 'basic' : normalizeFlowCode(qualifier);
-        const numbers = numbersByTable.get(target);
-        const targetLabel = target === 'basic' ? 'el camino básico' : target;
-
-        if (numbers === undefined) {
-          issues.push({ id: `ref-table:${line.stepId}:${line.field}:${line.lineIndex}:${match.index}`, kind: 'error', location, message: `El ${where} menciona ${targetLabel}, que no existe.` });
-        } else if (!numbers.has(match[1])) {
+    for (const ref of refs) {
+      if (ref.kind === 'ca') {
+        if (altById.has(ref.flowId)) {
+          referencedAltIds.add(ref.flowId);
+        } else {
           issues.push({
-            id: `ref:${line.stepId}:${line.field}:${line.lineIndex}:${match.index}`,
+            id: `ref-ca-broken:${stepId}:${ref.id}`,
             kind: 'error',
+            category: 'referencias',
             location,
-            message: `El ${where} menciona el paso ${match[1]}${target === table.code ? '' : ` de ${targetLabel}`}, que no existe.`,
+            message: `El ${where} referencia un Camino Alternativo que ya no existe.`,
+          });
+        }
+      } else if (ref.kind === 'ca-missing') {
+        const alt = altByCode.get(normalizeLegacyFlowCode(ref.code));
+        if (alt) {
+          referencedAltIds.add(alt.id);
+        } else {
+          issues.push({
+            id: `ref-ca-missing:${stepId}:${ref.id}`,
+            kind: 'error',
+            category: 'referencias',
+            location,
+            message: `El ${where} deriva a ${ref.code || 'un CA'}, pero ese Camino Alternativo no está definido abajo.`,
           });
         }
       }
+      // `kind === 'gui'` and `kind === 'custom'` are valid non-CA references (e.g. GUI-1).
+    }
+  };
 
-      // Path references.
-      line.refs.forEach((code) => {
-        referencedPaths.add(code);
-        if (!pathCodes.has(code)) {
-          issues.push({ id: `path:${line.stepId}:${line.lineIndex}:${code}`, kind: 'error', location, message: `El ${where} deriva a ${code}, pero ese camino alternativo no existe.` });
+  const checkManualStepReferences = (
+    text: string,
+    flowId: 'basic' | string,
+    stepId: string,
+    mainStepId: string,
+  ): void => {
+    const location: FlowIssueLocation = { kind: 'step', flowId, stepId, mainStepId };
+    const where = stepWhere(flowId, stepId);
+
+    for (const match of text.matchAll(MANUAL_STEP_REF_RE)) {
+      const targetNum = match[1];
+      const qualifier = match[2];
+      let targetFlowId: 'basic' | string | undefined = flowId;
+      let targetFlowLabel = flowId === 'basic' ? 'el camino básico' : flowLabel(flowId);
+
+      if (qualifier) {
+        if (/b[aá]sico|principal/i.test(qualifier)) {
+          targetFlowId = 'basic';
+          targetFlowLabel = 'el camino principal';
+        } else {
+          const norm = normalizeLegacyFlowCode(qualifier);
+          const found = altByCode.get(norm);
+          targetFlowId = found?.id;
+          targetFlowLabel = norm;
         }
+      }
+
+      if (!targetFlowId) {
+        issues.push({
+          id: `manual-flow:${stepId}:${match.index}`,
+          kind: 'error',
+          category: 'referencias',
+          location,
+          message: `El ${where} menciona ${targetFlowLabel}, que no existe.`,
+        });
+        continue;
+      }
+
+      const validNums = numbersByFlowId.get(targetFlowId);
+      if (!validNums?.has(targetNum)) {
+        issues.push({
+          id: `manual-step:${stepId}:${match.index}`,
+          kind: 'error',
+          category: 'referencias',
+          location,
+          message: `El ${where} apunta al paso ${targetNum}${targetFlowId === flowId ? '' : ` de ${targetFlowLabel}`}, que no existe.`,
+        });
+      }
+    }
+  };
+
+  const checkAnchorExists = (
+    anchor: { flowId: 'basic' | string; stepId: string } | undefined,
+    flowId: 'basic' | string,
+    stepId: string,
+    mainStepId: string,
+    kindLabel: 'Ir a paso' | 'referencia de paso',
+  ): void => {
+    if (!anchor) return;
+    if (!numbering.stepNumberById.has(anchor.stepId)) {
+      issues.push({
+        id: `anchor:${stepId}:${anchor.stepId}`,
+        kind: 'error',
+        category: 'referencias',
+        location: { kind: 'step', flowId, stepId, mainStepId },
+        message: `La ${kindLabel} en el ${stepWhere(flowId, stepId)} apunta a un paso eliminado o inexistente.`,
       });
+    }
+  };
 
-      if (line.kind === 'step') {
-        const next = lines.slice(index + 1).find((candidate) => candidate.kind === 'step');
-        const hasChildren = next !== undefined && next.level > line.level;
+  // Track which real DC classes are created/modified in the flow (for Estado Final coherence & Guardar Cambios).
+  const persistedMutatedClasses = new Set<string>();
 
-        if (/^POR\s+CADA\b/i.test(body) && !hasChildren) {
-          issues.push({ id: `loop:${line.stepId}:${line.lineIndex}`, kind: 'review', location, message: `El POR CADA del ${where} no tiene pasos adentro (${line.number}.1, …).` });
+  const checkDetails = (
+    details: FlowDetailItem[],
+    ownerClass: string | undefined,
+    flowId: 'basic' | string,
+    stepId: string,
+    mainStepId: string,
+  ): void => {
+    const location: FlowIssueLocation = { kind: 'step', flowId, stepId, mainStepId };
+    const where = stepWhere(flowId, stepId);
+
+    for (const detail of details) {
+      checkAnchorExists(detail.stepRef, flowId, stepId, mainStepId, 'referencia de paso');
+      checkManualStepReferences(detail.text, flowId, stepId, mainStepId);
+
+      const relMatch = new RegExp(`Relacionad[ao]s?\\s+a\\s+(?:la\\s+|las\\s+)?(?:instancias?|instancia\\/s)\\s+(?:de\\s+)?(${IDENT})`, 'i').exec(detail.text);
+      if (relMatch) {
+        checkClassExists(relMatch[1], location, where);
+        if (detail.children && detail.children.length > 0) {
+          checkDetails(detail.children, relMatch[1], flowId, stepId, mainStepId);
         }
+        continue;
+      }
 
-        if (/^SI\b/i.test(body) && !hasChildren) {
-          const closes = lines.slice(index + 1).some((candidate) => candidate.kind === 'step' && candidate.level === line.level && /^FIN\s+SI\b/i.test(candidate.body.trim()));
-          if (!closes) {
-            issues.push({ id: `if:${line.stepId}:${line.lineIndex}`, kind: 'review', location, message: `El SI del ${where} no tiene pasos adentro ni un FIN SI que lo cierre.` });
-          }
-        }
+      const attrMatch = ATTR_BULLET_RE.exec(detail.text.trim());
+      if (attrMatch && ownerClass) {
+        checkAttributeExists(ownerClass, attrMatch[1], location, where, detail.id);
+      }
 
-        if (/^SINO\b/i.test(body)) {
-          let opened = false;
-          for (let current = index - 1; current >= 0; current -= 1) {
-            const candidate = lines[current];
-            if (candidate.kind !== 'step') continue;
-            if (candidate.level < line.level) break;
-            if (candidate.level === line.level && /^SI\b/i.test(candidate.body.trim())) {
-              opened = true;
-              break;
+      if (detail.children && detail.children.length > 0) {
+        checkDetails(detail.children, ownerClass, flowId, stepId, mainStepId);
+      }
+    }
+  };
+
+  const reviewFlow = (steps: FlowMainStep[], flowId: 'basic' | string): void => {
+    let mutatesDomainEntity = false;
+    let savedAfterMutation = false;
+    let firstMutationLocation: FlowIssueLocation | undefined;
+    let lastExecutableStep: { stepId: string; mainStepId: string; primitive?: string; text: string; hasJump: boolean } | undefined;
+
+    const inspectAction = (
+      node: Pick<FlowActionNode, 'id' | 'primitive' | 'text' | 'semantic' | 'details' | 'refs' | 'stepRef' | 'jumpTarget'>,
+      mainStepId: string,
+      speaker: 'actor' | 'system',
+    ): void => {
+      const location: FlowIssueLocation = { kind: 'step', flowId, stepId: node.id, mainStepId };
+      const where = stepWhere(flowId, node.id);
+      const semantic = speaker === 'system' ? inferActionSemantic(node.primitive, node.text, node.semantic) : undefined;
+
+      checkRefs(node.refs, flowId, node.id, mainStepId);
+      checkAnchorExists(node.stepRef, flowId, node.id, mainStepId, 'referencia de paso');
+      checkAnchorExists(node.jumpTarget, flowId, node.id, mainStepId, 'Ir a paso');
+      checkManualStepReferences(node.text, flowId, node.id, mainStepId);
+
+      if (node.text.trim() || node.jumpTarget) {
+        lastExecutableStep = {
+          stepId: node.id,
+          mainStepId,
+          primitive: node.primitive,
+          text: node.text,
+          hasJump: Boolean(node.jumpTarget),
+        };
+      }
+
+      if (speaker === 'actor') return;
+
+      // Check class mentions in text
+      for (const m of node.text.matchAll(CLASS_MENTION_RE)) {
+        checkClassExists(m[1], location, where);
+      }
+      if (semantic?.targetClass) checkClassExists(semantic.targetClass, location, where);
+      if (semantic?.sourceClass) checkClassExists(semantic.sourceClass, location, where);
+
+      // CRITICAL CÁTEDRA RULE: `Leer ClaseB relacionada a ClaseA` requires navigability ClaseA → ClaseB in DC!
+      if (node.primitive === 'leer' && hasLinkedClasses) {
+        if (semantic?.sourceClass && semantic?.targetClass) {
+          if (!pseudoByName.has(semantic.sourceClass) && !pseudoByName.has(semantic.targetClass)) {
+            const nav = checkClassNavigability(symbolIndex, semantic.sourceClass, semantic.targetClass);
+            if (nav === 'reverse-only') {
+              issues.push({
+                id: `nav-reverse:${node.id}`,
+                kind: 'error',
+                category: 'navigabilidad',
+                location,
+                message: `En el ${where}, «Leer ${semantic.targetClass}» desde «${semantic.sourceClass}» no tiene navegabilidad en ese sentido (el DC navega ${semantic.targetClass} → ${semantic.sourceClass}). Usá «Buscar instancia de ${semantic.targetClass}» o corregí la navegabilidad en el DC.`,
+              });
+            } else if (nav === 'unspecified') {
+              issues.push({
+                id: `nav-none:${node.id}`,
+                kind: 'review',
+                category: 'navigabilidad',
+                location,
+                message: `En el ${where}, la asociación entre «${semantic.sourceClass}» y «${semantic.targetClass}» no tiene navegabilidad marcada hacia «${semantic.targetClass}». Revisá el DC o usá «Buscar».`,
+              });
+            } else if (nav === 'no-relation') {
+              issues.push({
+                id: `nav-missing:${node.id}`,
+                kind: 'error',
+                category: 'navigabilidad',
+                location,
+                message: `En el ${where}, no existe relación directa de «${semantic.sourceClass}» hacia «${semantic.targetClass}» en el DC; no es válido usar «Leer».`,
+              });
             }
           }
-          if (!opened) {
-            issues.push({ id: `else:${line.stepId}:${line.lineIndex}`, kind: 'error', location, message: `El SINO del ${where} no tiene un SI antes, al mismo nivel.` });
-          }
+        }
+        if (semantic?.sourceClass && semantic?.attribute) {
+          checkAttributeExists(semantic.sourceClass, semantic.attribute, location, where, node.id);
         }
       }
 
-      for (const match of line.body.matchAll(classUsePattern)) {
-        checkClassName(match[1], location, where);
+      // Check details (Buscar / Crear / Modificar / Leer / Mostrar mensaje)
+      const detailOwner = node.primitive === 'leer'
+        ? semantic?.sourceClass ?? semantic?.targetClass
+        : semantic?.targetClass;
+      if (node.details.length > 0) {
+        checkDetails(node.details, detailOwner, flowId, node.id, mainStepId);
       }
 
-      // Condition bullets: the attribute has to belong to the class above.
-      if (line.kind === 'bullet' && checkClasses) {
-        const attribute = new RegExp(`^(${identifier})\\s+(?:igual|distint|menor|mayor|=)`, 'i').exec(body)?.[1];
-        const owner = findOwnerClass(lines, index);
-        const ownerClass = owner === undefined ? undefined : classes.get(owner);
-        if (attribute !== undefined && ownerClass !== undefined && !ownerClass.attributes.some((candidate) => candidate.name === attribute)) {
+      // Track persistence mutations (only on real DC entities, NOT pseudoentities!)
+      if (node.primitive === 'crear' || node.primitive === 'modificar') {
+        const target = semantic?.targetClass;
+        const isPseudo = target !== undefined && pseudoByName.has(target);
+        if (!isPseudo) {
+          mutatesDomainEntity = true;
+          savedAfterMutation = false;
+          firstMutationLocation = firstMutationLocation ?? location;
+          if (target) persistedMutatedClasses.add(target);
+        }
+      }
+
+      if (node.primitive === 'guardar-cambios' || /^Guardar\s+Cambios\b/i.test(node.text.trim())) {
+        if (mutatesDomainEntity) savedAfterMutation = true;
+      }
+
+      // Comprobar / Controlar consistencia normally trigger a CA in Ref.
+      if (
+        (node.primitive === 'comprobar' || node.primitive === 'controlar-consistencia')
+        && !node.refs.some((ref) => ref.kind === 'ca' || ref.kind === 'ca-missing')
+      ) {
+        issues.push({
+          id: `missing-ca-ref:${node.id}`,
+          kind: 'review',
+          category: 'metodologia',
+          location,
+          message: `El ${where} (${node.primitive === 'comprobar' ? 'Comprobar' : 'Controlar consistencia'}) no referencia ningún CA en la columna Ref.`,
+        });
+      }
+    };
+
+    const inspectSubNodes = (nodes: FlowSubNode[], mainStepId: string): void => {
+      for (const node of nodes) {
+        const location: FlowIssueLocation = { kind: 'step', flowId, stepId: node.id, mainStepId };
+        const where = stepWhere(flowId, node.id);
+
+        if (node.kind === 'action') {
+          inspectAction(node, mainStepId, node.speaker ?? 'system');
+        } else if (node.kind === 'loop') {
+          checkRefs(node.refs, flowId, node.id, mainStepId);
+          checkAnchorExists(node.stepRef, flowId, node.id, mainStepId, 'referencia de paso');
+          checkManualStepReferences(node.header, flowId, node.id, mainStepId);
+          if (node.targetClass) checkClassExists(node.targetClass, location, where);
+          for (const m of node.header.matchAll(CLASS_MENTION_RE)) {
+            checkClassExists(m[1], location, where);
+          }
+          if (node.details.length === 0 && node.children.length === 0) {
+            issues.push({
+              id: `empty-loop:${node.id}`,
+              kind: 'review',
+              category: 'metodologia',
+              location,
+              message: `El bucle (${node.loopKind === 'por-cada' ? 'Por cada' : 'Mientras'}) del ${where} no tiene acciones adentro.`,
+            });
+          }
+          if (node.details.length > 0) checkDetails(node.details, node.targetClass, flowId, node.id, mainStepId);
+          inspectSubNodes(node.children, mainStepId);
+        } else {
+          checkRefs(node.refs, flowId, node.id, mainStepId);
+          checkManualStepReferences(node.condition, flowId, node.id, mainStepId);
+          if (node.thenChildren.length === 0) {
+            issues.push({
+              id: `empty-if:${node.id}`,
+              kind: 'review',
+              category: 'metodologia',
+              location,
+              message: `El condicional SI del ${where} no tiene pasos dentro de su rama verdadera.`,
+            });
+          }
+          inspectSubNodes(node.thenChildren, mainStepId);
+          if (node.elseChildren !== undefined) {
+            if (node.elseChildren.length === 0) {
+              issues.push({
+                id: `empty-else:${node.id}`,
+                kind: 'review',
+                category: 'metodologia',
+                location,
+                message: `La rama SINO del ${where} está vacía.`,
+              });
+            }
+            inspectSubNodes(node.elseChildren, mainStepId);
+          }
+        }
+      }
+    };
+
+    const containsControlarConsistencia = (step: FlowMainStep): boolean => {
+      if (step.primitive === 'controlar-consistencia' || /controlar\s+consistencia/i.test(step.title)) return true;
+      const walk = (nodes: FlowSubNode[]): boolean =>
+        nodes.some((n) =>
+          n.kind === 'action'
+            ? n.primitive === 'controlar-consistencia' || /controlar\s+consistencia/i.test(n.text)
+            : n.kind === 'loop'
+              ? walk(n.children)
+              : walk(n.thenChildren) || (n.elseChildren ? walk(n.elseChildren) : false));
+      return walk(step.children);
+    };
+
+    steps.forEach((step, index) => {
+      inspectAction(
+        {
+          id: step.id,
+          primitive: step.primitive ?? 'custom',
+          text: step.title,
+          semantic: step.semantic,
+          details: step.details ?? [],
+          refs: step.refs,
+          stepRef: step.stepRef,
+          jumpTarget: step.jumpTarget,
+        },
+        step.id,
+        step.speaker,
+      );
+
+      inspectSubNodes(step.children, step.id);
+
+      // Methodological check: Actor `Ingresar` should be followed by System `Controlar consistencia`.
+      if (step.speaker === 'actor' && (step.primitive === 'ingresar' || /^Ingresar\b/i.test(step.title.trim()))) {
+        const nextStep = steps[index + 1];
+        if (nextStep && nextStep.speaker === 'system' && !containsControlarConsistencia(nextStep)) {
           issues.push({
-            id: `attribute:${line.stepId}:${line.lineIndex}`,
+            id: `ingresar-no-consistencia:${step.id}`,
             kind: 'review',
-            location,
-            message: `«${attribute}» no es un atributo de ${ownerClass.name} (${where}).`,
+            category: 'metodologia',
+            location: { kind: 'step', flowId, stepId: nextStep.id, mainStepId: nextStep.id },
+            message: `Después del «Ingresar» (${stepWhere(flowId, step.id)}), el ${stepWhere(flowId, nextStep.id)} no incluye «Controlar consistencia de datos ingresados».`,
           });
         }
       }
     });
 
-    if (table.tableId !== 'basic') {
-      const last = [...lines].reverse().find((line) => line.body.trim().length > 0);
-      if (last === undefined) {
-        issues.push({ id: `empty:${table.code}`, kind: 'review', location: { kind: 'alternative', table: table.tableId }, message: `${table.code} todavía no tiene pasos.` });
-      } else if (!/^(Retornar|Volver|Ir\s+a|Fin(?:alizar)?\s+(?:(?:del?|el)\s+)?(?:CU|caso)|Extender|FIN\s+CU)/i.test(last.body.trim())) {
+    if (mutatesDomainEntity && !savedAfterMutation) {
+      issues.push({
+        id: `missing-save:${flowId}`,
+        kind: 'review',
+        category: 'persistencia-cierre',
+        location: firstMutationLocation,
+        message: `Hay primitivas Crear o Modificar sobre entidades del DC ${flowLabel(flowId)} sin un «Guardar Cambios» posterior.`,
+      });
+    }
+
+    if (flowId === 'basic' && steps.length > 0) {
+      const first = steps[0];
+      if (first.speaker !== 'actor' || !/^Iniciar\s+CU\b/i.test(first.title.trim())) {
         issues.push({
-          id: `end:${table.code}`,
+          id: 'basic-start',
           kind: 'review',
-          location: { kind: 'cell', table: table.tableId, stepId: last.stepId, field: last.field, lineIndex: last.lineIndex },
-          message: `${table.code} no dice cómo termina: cerralo con «Retornar a paso …» o «Fin CU».`,
+          category: 'metodologia',
+          location: { kind: 'step', flowId: 'basic', stepId: first.id, mainStepId: first.id },
+          message: 'El camino básico debería iniciar en el paso 1 con el Actor ejecutando «Iniciar CU».',
+        });
+      }
+      if (
+        lastExecutableStep
+        && lastExecutableStep.primitive !== 'fin-cu'
+        && lastExecutableStep.primitive !== 'ir-a-paso'
+        && lastExecutableStep.primitive !== 'ir-a-cu'
+        && !lastExecutableStep.hasJump
+        && !isEndingText(lastExecutableStep.text)
+      ) {
+        issues.push({
+          id: 'basic-end',
+          kind: 'review',
+          category: 'persistencia-cierre',
+          location: { kind: 'step', flowId: 'basic', stepId: lastExecutableStep.stepId, mainStepId: lastExecutableStep.mainStepId },
+          message: 'El camino básico no cierra explícitamente con «Fin CU».',
         });
       }
     }
 
-    table.rows.forEach((row) => {
-      if (row.ref.trim().length > 0) {
-        const code = normalizeFlowCode(row.ref);
-        referencedPaths.add(code);
-        if (!pathCodes.has(code)) {
-          issues.push({
-            id: `row-ref:${row.id}`,
-            kind: 'error',
-            location: { kind: 'cell', table: table.tableId, stepId: row.id, field: 'system', lineIndex: 0 },
-            message: `Una fila ${table.tableId === 'basic' ? 'del camino básico' : `de ${table.code}`} deriva a ${row.ref.trim()}, pero ese camino alternativo no existe.`,
-          });
-        }
+    if (flowId !== 'basic') {
+      const alt = altById.get(flowId);
+      const codeLabel = alt ? formatAlternativeRef(alt.number) : 'El camino alternativo';
+      if (steps.length === 0 || !lastExecutableStep) {
+        issues.push({
+          id: `empty-alt:${flowId}`,
+          kind: 'review',
+          category: 'persistencia-cierre',
+          location: { kind: 'alternative', flowId },
+          message: `${codeLabel} todavía no tiene pasos.`,
+        });
+      } else if (
+        lastExecutableStep.primitive !== 'fin-cu'
+        && lastExecutableStep.primitive !== 'ir-a-paso'
+        && !lastExecutableStep.hasJump
+        && !isEndingText(lastExecutableStep.text)
+      ) {
+        issues.push({
+          id: `alt-end:${flowId}`,
+          kind: 'review',
+          category: 'persistencia-cierre',
+          location: { kind: 'step', flowId, stepId: lastExecutableStep.stepId, mainStepId: lastExecutableStep.mainStepId },
+          message: `${codeLabel} debe cerrar explícitamente con «Ir a paso [N]» o «Fin CU».`,
+        });
       }
-    });
+    }
+  };
+
+  reviewFlow(content.basicFlow, 'basic');
+  content.alternativeFlows.forEach((alt) => reviewFlow(alt.steps, alt.id));
+
+  // Orphan & unnamed alternative flows
+  content.alternativeFlows.forEach((alt) => {
+    const label = formatAlternativeRef(alt.number);
+    if (!referencedAltIds.has(alt.id)) {
+      issues.push({
+        id: `orphan:${alt.id}`,
+        kind: 'review',
+        category: 'referencias',
+        location: { kind: 'alternative', flowId: alt.id },
+        message: `${label} es huérfano: ningún paso lo referencia en la columna Ref.`,
+      });
+    }
+    if (alt.title.trim().length === 0) {
+      issues.push({
+        id: `unnamed:${alt.id}`,
+        kind: 'review',
+        category: 'metodologia',
+        location: { kind: 'alternative', flowId: alt.id },
+        message: `${label} no tiene descripción de causa (ej. «No existe socio con número ingresado»).`,
+      });
+    }
   });
 
-  content.alternativeFlows.forEach((flow) => {
-    const code = normalizeFlowCode(flow.code);
-    if (!referencedPaths.has(code)) {
-      issues.push({ id: `orphan:${flow.id}`, kind: 'review', location: { kind: 'alternative', table: flow.id }, message: `Ningún paso deriva a ${flow.code}. Marcá desde dónde se toma con ${shortcutLabel('⇧⌘A')} o en la columna Ref.` });
+  // Validate Initial State and Final State against the linked Class Diagram
+  const validateStateDetails = (
+    details: StateDetailItem[],
+    ownerClass: string,
+    field: 'initialState' | 'finalState',
+    blockId: string,
+  ): void => {
+    const where = field === 'initialState' ? 'en el Estado Inicial' : 'en el Estado Final';
+    for (const detail of details) {
+      const location: FlowIssueLocation = { kind: 'state', field, blockId, detailId: detail.id };
+      if (detail.kind === 'attribute') {
+        checkAttributeExists(ownerClass, detail.attribute, location, where, detail.id);
+      } else if (detail.kind === 'relation') {
+        checkClassExists(detail.className, location, where);
+        validateStateDetails(detail.children, detail.className, field, blockId);
+      }
     }
-    if (flow.name.trim().length === 0) {
-      issues.push({ id: `unnamed:${flow.id}`, kind: 'review', location: { kind: 'alternative', table: flow.id }, message: `${flow.code} no tiene nombre: escribí en pocas palabras qué situación cubre.` });
-    }
-  });
+  };
 
-  (['initialState', 'finalState'] as const).forEach((field) => {
-    const label = field === 'initialState' ? 'estado inicial' : 'estado final';
-    content.description[field].split('\n').forEach((line, lineIndex) => {
-      const match = new RegExp(`\\binstancias?\\s+(?:de\\s+)?(${identifier})`, 'gi');
-      for (const found of line.matchAll(match)) {
-        checkClassName(found[1], { kind: 'state', field, lineIndex }, `en el ${label}`);
+  const finalStateMutatedClasses = new Set<string>();
+  const validateStateInstance = (
+    inst: StateInstanceBlock,
+    field: 'initialState' | 'finalState',
+    blockId: string,
+  ): void => {
+    const where = field === 'initialState' ? 'en el Estado Inicial' : 'en el Estado Final';
+    checkClassExists(inst.className, { kind: 'state', field, blockId }, where);
+    validateStateDetails(inst.details, inst.className, field, blockId);
+    if (field === 'finalState' && inst.className.trim() && (inst.qualifier === 'creada' || inst.qualifier === 'modificada')) {
+      finalStateMutatedClasses.add(inst.className.trim());
+    }
+  };
+
+  const validateStateBlocks = (blocks: StateBlock[], field: 'initialState' | 'finalState'): void => {
+    for (const block of blocks) {
+      if (block.kind === 'instance') {
+        validateStateInstance(block, field, block.id);
+      } else if (block.kind === 'condition') {
+        block.blocks.forEach((inst) => validateStateInstance(inst, field, inst.id));
+      }
+    }
+  };
+
+  validateStateBlocks(content.description.initialState, 'initialState');
+  validateStateBlocks(content.description.finalState, 'finalState');
+
+  // Coherence check between Final State and Flow mutations (only when both exist)
+  if (content.basicFlow.length > 0 && finalStateMutatedClasses.size > 0) {
+    finalStateMutatedClasses.forEach((clsName) => {
+      const hasMutation = Array.from(persistedMutatedClasses).some(
+        (candidate) => candidate.toLowerCase() === clsName.toLowerCase(),
+      );
+      if (!hasMutation) {
+        issues.push({
+          id: `final-state-unmatched:${clsName}`,
+          kind: 'review',
+          category: 'metodologia',
+          message: `El Estado Final indica cambios en «${clsName}», pero el flujo no tiene un «Crear» ni «Modificar» sobre esa clase.`,
+        });
       }
     });
-  });
+  }
 
   return issues;
-};
-
-const findOwnerClass = (lines: FlowTableLine[], index: number): string | undefined => {
-  const indent = lines[index].indent;
-  for (let current = index - 1; current >= 0; current -= 1) {
-    const line = lines[current];
-    if (line.indent >= indent && line.kind === 'bullet') continue;
-    if (line.indent >= indent) return undefined;
-    const match = contextPattern.exec(`${line.body}`) ?? new RegExp(`(?:Buscar|Crear|Modificar)\\s+(?:${identifier}\\s+)?(${identifier})\\s+con:\\s*$`, 'i').exec(line.body);
-    return match?.[1];
-  }
-  return undefined;
 };

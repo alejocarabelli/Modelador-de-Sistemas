@@ -94,7 +94,7 @@ test('proponer_cambio con operaciones guarda el resultado y las operaciones, sin
   const entorno = { MODELADOR_RESPALDOS: base, MODELADOR_WEBKIT: join(base, 'nada'), MODELADOR_PROPUESTAS: join(base, 'Propuestas') };
   const flujo = demo.artifacts.find((a) => a.type === 'use-case-flow');
   const paso = flujo.content.basicFlow[0];
-  const operaciones = [{ op: 'modificar', id: paso.id, campos: { actor: 'El usuario elige el trámite.' } }];
+  const operaciones = [{ op: 'modificar', id: paso.id, campos: { title: 'El usuario elige el trámite.' } }];
 
   const respuesta = await llamar(entorno, 'proponer_cambio', { artefacto: 'cambio de estado', operaciones, descripcion: 'Aclaro el primer paso.' });
   assert.equal(respuesta.isError, undefined, respuesta.content[0].text);
@@ -102,7 +102,7 @@ test('proponer_cambio con operaciones guarda el resultado y las operaciones, sin
   const [archivo] = await readdir(join(base, 'Propuestas'));
   const propuesta = JSON.parse(await readFile(join(base, 'Propuestas', archivo), 'utf8'));
   assert.deepEqual(propuesta.operations, operaciones);
-  assert.equal(propuesta.content.basicFlow[0].actor, 'El usuario elige el trámite.');
+  assert.equal(propuesta.content.basicFlow[0].title, 'El usuario elige el trámite.');
   assert.deepEqual(propuesta.content.alternativeFlows, flujo.content.alternativeFlows);
 
   // El nombre de la 0.3.0 sigue andando para quien lo tenga en una conversación vieja.

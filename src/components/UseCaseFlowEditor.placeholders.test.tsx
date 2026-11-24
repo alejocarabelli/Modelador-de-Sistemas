@@ -5,19 +5,52 @@ import { UseCaseFlowEditor } from './UseCaseFlowEditor';
 import { themes } from '../theme/themes';
 import type { DesignProject, UseCaseFlowArtifact } from '../types/diagram';
 import { normalizeUseCaseFlowContent } from '../utils/diagramNormalization';
+import {
+  createAlternativeFlow,
+  createEmptyUseCaseFlowContent,
+  createFlowActionNode,
+  createFlowConditionalNode,
+  createFlowLoopNode,
+  createFlowMainStep,
+} from '../utils/useCaseFlowModel';
 
-describe('UseCaseFlowEditor wording', () => {
-  it('describes what goes in each field instead of showing another domain example', () => {
+describe('UseCaseFlowEditor v2 rendering', () => {
+  it('renders the 9 official Lista Descriptiva fields, 3-column table, loop frames and SI/SINO/FINSI', () => {
     const now = '2026-01-01T00:00:00.000Z';
+    const loop = createFlowLoopNode('por-cada', 'Por cada instancia de SocioEstado:');
+    const cond = createFlowConditionalNode('estado igual a activo');
+    cond.elseChildren = [createFlowActionNode('mostrar-mensaje', 'Mostrar mensaje “Inactivo”')];
+
+    const content = createEmptyUseCaseFlowContent();
+    content.description.useCaseNumber = '16';
+    content.description.useCaseName = 'Asentar Resultado';
+    content.basicFlow = [
+      createFlowMainStep('actor', 'Iniciar CU', {
+        id: 's1',
+        primitive: 'iniciar-cu',
+        refs: [{ id: 'g1', kind: 'gui', label: 'GUI-1' }],
+      }),
+      createFlowMainStep('system', 'Verificar socio', {
+        id: 's2',
+        children: [
+          createFlowActionNode('controlar-consistencia', 'Controlar consistencia de datos ingresados', {
+            id: 's2-1',
+            refs: [{ id: 'r1', kind: 'ca', flowId: 'ca-1' }],
+          }),
+          loop,
+          cond,
+        ],
+      }),
+    ];
+    content.alternativeFlows = [{ ...createAlternativeFlow(1, 'Datos inconsistentes'), id: 'ca-1' }];
+
     const flowArtifact: UseCaseFlowArtifact = {
       id: 'flow-1',
       type: 'use-case-flow',
-      name: 'Caso de uso',
+      name: 'Asentar Resultado',
       createdAt: now,
       updatedAt: now,
-      content: normalizeUseCaseFlowContent({
-        alternativeFlows: [{ id: 'ca-1', code: 'CA 1', name: '', steps: [] }],
-      }),
+      content: normalizeUseCaseFlowContent(content),
     };
     const project: DesignProject = {
       id: 'project-1',
@@ -30,57 +63,70 @@ describe('UseCaseFlowEditor wording', () => {
 
     const html = renderToString(
       <DialogProvider>
-      <UseCaseFlowEditor
-        artifact={flowArtifact}
-        canRedo={false}
-        canUndo={false}
-        project={project}
-        theme={themes[0]}
-        onChangeContent={vi.fn()}
-        onRedo={vi.fn()}
-        onUndo={vi.fn()}
-      />
+        <UseCaseFlowEditor
+          artifact={flowArtifact}
+          canRedo={false}
+          canUndo={false}
+          project={project}
+          theme={themes[0]}
+          onChangeContent={vi.fn()}
+          onRedo={vi.fn()}
+          onUndo={vi.fn()}
+        />
       </DialogProvider>,
     );
 
-    for (const placeholder of [
-      'Actor principal',
-      'Datos que recibe, separados por coma',
-      'Condición que debe cumplirse antes',
-      'Cómo queda el sistema al terminar',
-      'Qué datos existen antes de empezar',
-      'Qué datos existen al terminar',
-      'Nombre del camino alternativo',
+    // 9 official Lista Descriptiva labels
+    for (const label of [
+      'Número',
+      'Nombre del Caso de Uso',
+      'Actor',
+      'Descripción',
+      'Prioridad',
+      'Parámetros de Entrada',
+      'Precondición',
+      'Estado Inicial',
+      'Estado Final',
     ]) {
-      expect(html).toContain(`placeholder="${placeholder}"`);
+      expect(html).toContain(label);
     }
-    expect(html).not.toMatch(/placeholder="[^"]*(Consultor|Tramite|fechaHoraBaja|Datos inconsistentes)/);
-    expect(html).toContain('title="Vincular el diagrama de clases permite revisar que las clases y atributos que nombrás existan."');
+
+    // Aligned Ref. chips, loop frame, SI / SINO / FINSI, and CA N°1 banner
+    expect(html).toContain('GUI-1');
+    expect(html).toContain('CA N°1');
+    expect(html).toContain('ucf-loop-block');
+    expect(html).toContain('>SI<');
+    expect(html).toContain('>SINO<');
+    expect(html).toContain('>FINSI<');
+    expect(html).toContain('Camino alternativo N°');
+    expect(html).toContain('desde paso 2.1');
   });
 
-  it('shows example placeholders only in the first row of each table', () => {
+  it('surfaces legacy postcondition migration banner only when present', () => {
     const now = '2026-01-01T00:00:00.000Z';
+    const migrated = normalizeUseCaseFlowContent({
+      description: {
+        useCaseNumber: '1',
+        useCaseName: 'Test',
+        actor: 'Usuario',
+        description: '',
+        priority: 'A',
+        inputParameters: '',
+        precondition: '',
+        postcondition: 'Texto heredado v1',
+        initialState: '',
+        finalState: '',
+      },
+      basicFlow: [],
+      alternativeFlows: [],
+    });
     const flowArtifact: UseCaseFlowArtifact = {
-      id: 'flow-1',
+      id: 'flow-legacy',
       type: 'use-case-flow',
-      name: 'Caso de uso',
+      name: 'Test',
       createdAt: now,
       updatedAt: now,
-      content: normalizeUseCaseFlowContent({
-        basicFlow: [
-          { id: 'b1', actor: '', system: '', ref: '' },
-          { id: 'b2', actor: '', system: '', ref: '' },
-        ],
-        alternativeFlows: [{
-          id: 'ca-1',
-          code: 'CA 1',
-          name: '',
-          steps: [
-            { id: 'a1', actor: '', system: '', ref: '' },
-            { id: 'a2', actor: '', system: '', ref: '' },
-          ],
-        }],
-      }),
+      content: migrated,
     };
     const project: DesignProject = {
       id: 'project-1',
@@ -93,25 +139,21 @@ describe('UseCaseFlowEditor wording', () => {
 
     const html = renderToString(
       <DialogProvider>
-      <UseCaseFlowEditor
-        artifact={flowArtifact}
-        canRedo={false}
-        canUndo={false}
-        project={project}
-        theme={themes[0]}
-        onChangeContent={vi.fn()}
-        onRedo={vi.fn()}
-        onUndo={vi.fn()}
-      />
+        <UseCaseFlowEditor
+          artifact={flowArtifact}
+          canRedo={false}
+          canUndo={false}
+          project={project}
+          theme={themes[0]}
+          onChangeContent={vi.fn()}
+          onRedo={vi.fn()}
+          onUndo={vi.fn()}
+        />
       </DialogProvider>,
     );
 
-    const countPlaceholder = (placeholder: string) => html.split(`placeholder="${placeholder}"`).length - 1;
-    expect(countPlaceholder('ej. 3')).toBe(1);
-    // The basic flow and the alternative path each show it once, on their first row.
-    expect(countPlaceholder('ej. CA 1')).toBe(2);
-    expect(countPlaceholder('1. Acción del actor')).toBe(2);
-    expect(countPlaceholder('2. Respuesta del sistema')).toBe(2);
-    expect(html).not.toContain('placeholder="3"');
+    expect(html).toContain('Postcondición (v1)');
+    expect(html).toContain('Texto heredado v1');
+    expect(html).toContain('Mover a Estado Final');
   });
 });

@@ -62,6 +62,19 @@ const collectionCounterparts = (raw: unknown[], clean: unknown[]): unknown[] => 
 const contentLost = (raw: unknown, normalized: unknown): boolean => {
   if (!isRecord(raw)) return false;
   const clean = isRecord(normalized) ? normalized : {};
+  // Legacy v1 → v2 use-case-flow migration restructures flat rows into nested turn trees.
+  // Verify that no alternative flow was dropped and non-empty flows stayed non-empty.
+  if (raw.version !== 2 && clean.version === 2 && isRecord(raw.description) && ('basicFlow' in raw || 'alternativeFlows' in raw)) {
+    const rawBasic = Array.isArray(raw.basicFlow) ? raw.basicFlow : null;
+    const rawAlts = Array.isArray(raw.alternativeFlows) ? raw.alternativeFlows : null;
+    if (raw.basicFlow !== undefined && rawBasic === null && hasCollectionData(raw.basicFlow)) return true;
+    if (raw.alternativeFlows !== undefined && rawAlts === null && hasCollectionData(raw.alternativeFlows)) return true;
+    const cleanBasic = Array.isArray(clean.basicFlow) ? clean.basicFlow : [];
+    const cleanAlts = Array.isArray(clean.alternativeFlows) ? clean.alternativeFlows : [];
+    if (rawBasic && rawBasic.length > 0 && cleanBasic.length === 0) return true;
+    if (rawAlts && rawAlts.length > cleanAlts.length) return true;
+    return false;
+  }
   return Object.entries(raw).some(([key, value]) => {
     const next = clean[key];
     if (contentCollectionKeys.has(key)) {

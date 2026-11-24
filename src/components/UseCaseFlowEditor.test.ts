@@ -1,56 +1,75 @@
 import { describe, expect, it } from 'vitest';
-import type { UseCaseFlowContent, UseCaseFlowStep } from '../types/diagram';
-import { normalizeFlowRowsNumbering, normalizeUseCaseFlowContentNumbering } from '../utils/useCaseFlowNumbering';
+import type { UseCaseFlowContent } from '../types/diagram';
+import {
+  computeFlowNumbering,
+  createEmptyUseCaseFlowContent,
+  createFlowActionNode,
+  createFlowMainStep,
+} from '../utils/useCaseFlowModel';
 
-describe('use case flow numbering', () => {
-  it('renumbers actor and system globally in reading order', () => {
-    const rows: UseCaseFlowStep[] = [
-      { id: 'row-1', actor: '7. Iniciar CU', system: '1. Solicitar datos', ref: '' },
-      { id: 'row-2', actor: '1. Ingresar datos', system: '3. Verificar datos', ref: '' },
-    ];
+describe('use case flow v2 numbering', () => {
+  it('numbers alternating actor and system turns sequentially', () => {
+    const content: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [
+        createFlowMainStep('actor', 'Iniciar CU', { id: 's1' }),
+        createFlowMainStep('system', 'Solicitar datos', { id: 's2' }),
+        createFlowMainStep('actor', 'Ingresar datos', { id: 's3' }),
+        createFlowMainStep('system', 'Verificar datos', { id: 's4' }),
+      ],
+    };
 
-    const normalized = normalizeFlowRowsNumbering(rows);
-
-    expect(normalized[0].actor).toBe('1. Iniciar CU');
-    expect(normalized[0].system).toBe('2. Solicitar datos');
-    expect(normalized[1].actor).toBe('3. Ingresar datos');
-    expect(normalized[1].system).toBe('4. Verificar datos');
+    const numbering = computeFlowNumbering(content);
+    expect(numbering.stepNumberById.get('s1')).toBe('1');
+    expect(numbering.stepNumberById.get('s2')).toBe('2');
+    expect(numbering.stepNumberById.get('s3')).toBe('3');
+    expect(numbering.stepNumberById.get('s4')).toBe('4');
   });
 
-  it('preserves hierarchy and ignores bullet details', () => {
-    const rows: UseCaseFlowStep[] = [
-      {
-        id: 'row-1',
-        actor: '8. Iniciar CU',
-        system: '4. Verificar existencia\n4.9. Buscar instancia Caso con:\n    - estado = "Disponible"',
-        ref: '',
-      },
-    ];
+  it('numbers nested sub-steps under their parent main step', () => {
+    const content: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [
+        createFlowMainStep('actor', 'Iniciar CU', { id: 's1' }),
+        createFlowMainStep('system', 'Verificar existencia', {
+          id: 's2',
+          children: [
+            createFlowActionNode('controlar-consistencia', 'Controlar consistencia', { id: 's2-1' }),
+            createFlowActionNode('buscar', 'Buscar instancia de Caso:', { id: 's2-2' }),
+          ],
+        }),
+      ],
+    };
 
-    const [normalized] = normalizeFlowRowsNumbering(rows);
-
-    expect(normalized.actor).toBe('1. Iniciar CU');
-    expect(normalized.system).toBe(
-      '2. Verificar existencia\n    2.1. Buscar instancia Caso con:\n    - estado = "Disponible"',
-    );
+    const numbering = computeFlowNumbering(content);
+    expect(numbering.stepNumberById.get('s2')).toBe('2');
+    expect(numbering.stepNumberById.get('s2-1')).toBe('2.1');
+    expect(numbering.stepNumberById.get('s2-2')).toBe('2.2');
   });
 
-  it('numbers alternative flows independently from the basic flow', () => {
-    const content = {
-      description: {
-        useCaseNumber: '', useCaseName: '', actor: '', description: '', priority: 'A', inputParameters: '', precondition: '',
-        postcondition: '', initialState: '', finalState: '',
-      },
-      basicFlow: [{ id: 'basic', actor: '9. Básico', system: '', ref: '' }],
-      alternativeFlows: [{
-        id: 'alternative', code: 'CA 1', name: '',
-        steps: [{ id: 'alternative-step', actor: '', system: '9. Alternativo', ref: '' }],
-      }],
-    } satisfies UseCaseFlowContent;
+  it('starts an unreferenced alternative flow at 1 unless overridden', () => {
+    const content: UseCaseFlowContent = {
+      ...createEmptyUseCaseFlowContent(),
+      basicFlow: [createFlowMainStep('actor', 'Iniciar CU', { id: 'b1' })],
+      alternativeFlows: [
+        {
+          id: 'alt-1',
+          number: 1,
+          title: 'Caso especial',
+          steps: [createFlowMainStep('system', 'Informar error', { id: 'a1' })],
+        },
+        {
+          id: 'alt-2',
+          number: 2,
+          title: 'Con inicio manual',
+          firstStepNumberOverride: 9,
+          steps: [createFlowMainStep('system', 'Informar error', { id: 'a2' })],
+        },
+      ],
+    };
 
-    const normalized = normalizeUseCaseFlowContentNumbering(content);
-
-    expect(normalized.basicFlow[0].actor).toBe('1. Básico');
-    expect(normalized.alternativeFlows[0].steps[0].system).toBe('1. Alternativo');
+    const numbering = computeFlowNumbering(content);
+    expect(numbering.stepNumberById.get('a1')).toBe('1');
+    expect(numbering.stepNumberById.get('a2')).toBe('9');
   });
 });

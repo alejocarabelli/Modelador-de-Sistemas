@@ -1,5 +1,6 @@
 import type {
   ClassModelArtifact,
+  LegacyUseCaseFlowStep,
   SequenceMessage,
   SequenceMessageType,
   SequenceParticipant,
@@ -7,6 +8,7 @@ import type {
   UseCaseFlowArtifact,
 } from '../types/diagram';
 import { createId } from './id';
+import { computeFlowNumbering, formatAlternativeRef, isUseCaseFlowV2 } from './useCaseFlowModel';
 
 /**
  * The one editing contract shared by the toolbar composer, the canvas dialog
@@ -254,9 +256,9 @@ export const swapSequenceMessageEditModel = (
   };
 };
 
-const flowStepOption = (
+const legacyFlowStepOption = (
   flowId: string,
-  step: { id: string; actor: string; system: string; ref: string },
+  step: Partial<LegacyUseCaseFlowStep> & { id: string },
 ): SequenceFlowOption => {
   const value = (step.ref ?? '').trim() || step.id;
   const actor = (step.actor ?? '').trim();
@@ -276,16 +278,43 @@ export const getSequenceFlowOptions = (
 ): SequenceFlowOption[] => {
   if (!selectedFlowId) return [];
   const flow = flows.find((candidate) => candidate.id === selectedFlowId);
-  if (!flow) return [];
-  const basicFlow = Array.isArray(flow.content?.basicFlow) ? flow.content.basicFlow : [];
-  const alternativeFlows = Array.isArray(flow.content?.alternativeFlows) ? flow.content.alternativeFlows : [];
+  if (!flow || !flow.content) return [];
+
+  if (isUseCaseFlowV2(flow.content)) {
+    const content = flow.content;
+    const numbering = computeFlowNumbering(content);
+    const altNumberById = new Map(content.alternativeFlows.map((alt) => [alt.id, alt.number]));
+    const seen = new Set<string>();
+    return numbering.entries.flatMap((entry) => {
+      const value = entry.stepId;
+      if (seen.has(value)) return [];
+      seen.add(value);
+      const prefix = entry.flowId === 'basic'
+        ? `Paso ${entry.number}`
+        : `${formatAlternativeRef(altNumberById.get(entry.flowId) ?? 1)} · Paso ${entry.number}`;
+      return [{
+        value,
+        label: entry.label ? `${prefix} · ${entry.label}` : prefix,
+        flowId: flow.id,
+        stepId: entry.stepId,
+      }];
+    });
+  }
+
+  // Legacy v1 shape support for callers passing unnormalized fixtures directly.
+  const raw = flow.content as unknown as {
+    basicFlow?: Array<Partial<LegacyUseCaseFlowStep> & { id: string }>;
+    alternativeFlows?: Array<{ steps?: Array<Partial<LegacyUseCaseFlowStep> & { id: string }> }>;
+  };
+  const basicFlow = Array.isArray(raw.basicFlow) ? raw.basicFlow : [];
+  const alternativeFlows = Array.isArray(raw.alternativeFlows) ? raw.alternativeFlows : [];
   const steps = [
     ...basicFlow,
-    ...alternativeFlows.flatMap((alternative) => Array.isArray(alternative.steps) ? alternative.steps : []),
+    ...alternativeFlows.flatMap((alternative) => (Array.isArray(alternative.steps) ? alternative.steps : [])),
   ];
   const seen = new Set<string>();
   return steps.flatMap((step) => {
-    const option = flowStepOption(flow.id, step);
+    const option = legacyFlowStepOption(flow.id, step);
     if (seen.has(option.value)) return [];
     seen.add(option.value);
     return [option];

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, { Background, BackgroundVariant, ConnectionMode, ReactFlowProvider, type Edge, type Node, type NodeChange, type ReactFlowInstance } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { SquarePen } from 'lucide-react';
@@ -8,6 +8,7 @@ import { AssociationEdge } from './AssociationEdge';
 import { SystemBoundaryNode, UseCaseActorNode, UseCaseOvalNode } from './useCaseNodes';
 import { UseCaseRelationEdge } from './UseCaseRelationEdge';
 import { SequenceDiagramCanvas } from './SequenceDiagramCanvas';
+import { FlowDocumentPreview } from './useCaseFlow/FlowDocumentPreview';
 import { CanvasZoom } from './ui/CanvasZoom';
 import { useGentleWheelZoom } from '../hooks/useGentleWheelZoom';
 import { useTheme } from '../hooks/useTheme';
@@ -16,10 +17,10 @@ import { readCanvasGridEnabled } from '../storage/uiPreferences';
 import { focusArtifactInMainWindow } from '../storage/nativeWindows';
 import { normalizeAssociationEdge } from '../utils/association';
 import { distributeAssociationEnds } from '../utils/associationRouting';
-import { normalizeDiagramContent, normalizeUseCaseModelContent } from '../utils/diagramNormalization';
+import { normalizeDiagramContent, normalizeUseCaseFlowContent, normalizeUseCaseModelContent } from '../utils/diagramNormalization';
 import { analyzeSequenceDiagramSemantics } from '../utils/sequenceDiagram';
 import { buildSequenceLayout } from '../utils/sequenceDiagramLayout';
-import { buildFlowDocument, splitRowByRefs, type FlowDocLine, type FlowDocTable } from '../utils/flowDocument';
+import { buildFlowDocument } from '../utils/flowDocument';
 import { buildProjectSymbolIndex } from '../utils/projectSymbolIndex';
 import type {
   ClassDiagramArtifact,
@@ -297,88 +298,23 @@ function SequenceViewer({ artifact, project }: { artifact: SequenceDiagramArtifa
   );
 }
 
-function FlowDocLines({ lines }: { lines: FlowDocLine[] }) {
-  return (
-    <>
-      {lines.map((line, index) => (
-        <div
-          key={index}
-          className={`artifact-viewer-doc-line${line.bold ? ' is-bold' : ''}`}
-          style={{ paddingLeft: `${line.depth * 1.25}rem` }}
-        >
-          {line.number !== undefined ? <span className="artifact-viewer-doc-number">{line.number} </span> : null}
-          {line.bullet !== undefined ? <span aria-hidden="true">{['●', '○', '■'][line.bullet]} </span> : null}
-          {line.segments.map((segment, segmentIndex) => (
-            <span
-              key={segmentIndex}
-              style={{
-                fontWeight: segment.bold ? 600 : undefined,
-                fontStyle: segment.italic ? 'italic' : undefined,
-                textDecoration: segment.underline ? 'underline' : undefined,
-              }}
-            >{segment.text}</span>
-          ))}
-          {line.segments.length === 0 && line.number === undefined ? ' ' : null}
-        </div>
-      ))}
-    </>
-  );
-}
-
-function FlowTable({ table }: { table: FlowDocTable }) {
-  return (
-    <table className="artifact-viewer-doc-table">
-      <colgroup><col /><col /><col className="is-ref" /></colgroup>
-      <thead>
-        <tr><th colSpan={3} className="is-title">{table.title}</th></tr>
-        <tr><th>ACTOR</th><th>SISTEMA</th><th className="is-ref">REF.</th></tr>
-      </thead>
-      <tbody>
-        {table.rows.length === 0 ? (
-          <tr><td colSpan={3} className="artifact-viewer-doc-empty">Sin pasos todavía.</td></tr>
-        ) : table.rows.map((row, rowIndex) => (
-          <Fragment key={rowIndex}>
-            {splitRowByRefs(row).map((part, partIndex) => (
-              <tr key={partIndex} className={partIndex > 0 ? 'is-continuation' : undefined}>
-                <td><FlowDocLines lines={part.actor} /></td>
-                <td><FlowDocLines lines={part.system} /></td>
-                <td className="is-ref">{part.ref}</td>
-              </tr>
-            ))}
-          </Fragment>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/** The flow as its PDF and Word exports print it: description, basic path and alternative paths. */
+/** The flow as its PDF and Word exports print it: Lista Descriptiva, Camino Básico and Caminos Alternativos. */
 function UseCaseFlowViewer({ artifact, project }: { artifact: UseCaseFlowArtifact; project: DiagramProject }) {
   const document = useMemo(() => {
+    const normalized = normalizeUseCaseFlowContent(artifact.content);
     const classDiagrams = project.artifacts.filter((candidate): candidate is ClassDiagramArtifact => candidate.type === 'class-diagram');
-    // Same association the editor uses: the linked class diagram, or the only one in the project.
-    const classDiagram = classDiagrams.find((candidate) => candidate.id === artifact.content.classDiagramArtifactId)
-      ?? (classDiagrams.length === 1 ? classDiagrams[0] : undefined);
-    return buildFlowDocument(artifact.content, artifact.name, buildProjectSymbolIndex(classDiagram));
+    const classDiagram = normalized.classDiagramArtifactId === null
+      ? undefined
+      : classDiagrams.find((candidate) => candidate.id === normalized.classDiagramArtifactId)
+        ?? (normalized.classDiagramArtifactId === undefined && classDiagrams.length === 1 ? classDiagrams[0] : undefined);
+    return buildFlowDocument(normalized, artifact.name, buildProjectSymbolIndex(classDiagram));
   }, [artifact.content, artifact.name, project.artifacts]);
 
   return (
     <div className="artifact-viewer-doc">
-      <article className="artifact-viewer-doc-page">
-        <table className="artifact-viewer-doc-table is-fields">
-          <colgroup><col className="is-label" /><col /></colgroup>
-          <tbody>
-            {document.fields.map((field) => (
-              <tr key={field.label}>
-                <th scope="row">{field.label}</th>
-                <td><FlowDocLines lines={field.lines} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <FlowTable table={document.basic} />
-        {document.alternatives.map((table, index) => <FlowTable key={index} table={table} />)}
-      </article>
+      <div className="artifact-viewer-doc-page">
+        <FlowDocumentPreview document={document} />
+      </div>
     </div>
   );
 }
